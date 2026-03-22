@@ -1,9 +1,25 @@
 import { createClient } from '@supabase/supabase-js'
 import { supabase } from '../supabase/client'
 
-// Dedicated signup client — no session persistence so it never overwrites the admin's session
+// Admin client using service role key. Works when the key is a legacy JWT (eyJ...).
+// If VITE_SUPABASE_SERVICE_ROLE_KEY is set to a legacy JWT (from Supabase dashboard →
+// Settings → API → Legacy Keys → service_role), admin.createUser() will work without
+// rate limits and without needing email confirmation disabled.
+const serviceKey = import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+const isLegacyJwt = serviceKey && serviceKey.startsWith('eyJ')
+
+const adminClient = isLegacyJwt
+  ? createClient(supabaseUrl, serviceKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    })
+  : null
+
+// Fallback signup client — used when legacy JWT admin key is NOT available.
+// No session persistence so it never overwrites the logged-in admin's session.
+// Requires "Enable email confirmations" to be DISABLED in Supabase Auth settings.
 const signupClient = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
+  supabaseUrl,
   import.meta.env.VITE_SUPABASE_ANON_KEY,
   { auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false } }
 )
@@ -48,21 +64,37 @@ export async function getUserByAuthId(authId) {
 }
 
 export async function createUser(userData, password) {
-  const email = userData.user_email.trim().toLowerCase()
-  if (!email) throw new Error('Email is required to create a user.')
+  const email = userData.user_email?.trim()
+  if (!email) throw new Error('Email address is required')
 
-  // Use signupClient (anon key, no session persistence) so admin session is not overwritten.
-  // Requires "Enable email confirmations" to be DISABLED in Supabase Auth → Email settings.
-  const { data: authData, error: authError } = await signupClient.auth.signUp({
-    email,
-    password,
-    options: { data: { username: userData.user_name, role: userData.user_type } },
-  })
-  if (authError) throw authError
-  if (!authData.user) throw new Error('User creation failed. Make sure "Enable email confirmations" is disabled in Supabase Auth settings.')
+  let authUserId
+
+  if (adminClient) {
+    // Path A: legacy JWT service role key available — use admin API (no rate limits, no email confirm needed)
+    const { data: authData, error: authError } = await adminClient.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: { username: userData.user_name, role: userData.user_type },
+    })
+    if (authError) throw authError
+    authUserId = authData.user.id
+  } else {
+    // Path B: fallback — use anon signUp (requires email confirmation DISABLED in Supabase Auth settings)
+    const { data: authData, error: authError } = await signupClient.auth.signUp({
+      email,
+      password,
+      options: { data: { username: userData.user_name, role: userData.user_type } },
+    })
+    if (authError) throw authError
+    if (!authData.user) throw new Error(
+      'User creation failed. Please disable "Enable email confirmations" in Supabase Dashboard → Authentication → Providers → Email.'
+    )
+    authUserId = authData.user.id
+  }
 
   const { data, error } = await supabase.from('users').insert({
-    auth_user_id: authData.user.id,
+    auth_user_id: authUserId,
     user_name: userData.user_name,
     user_email: email,
     user_type: userData.user_type,
