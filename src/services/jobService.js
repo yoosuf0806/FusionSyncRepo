@@ -36,7 +36,7 @@ export async function getJobsForUser(userId) {
            job_specifications(job_type_name))
     `)
     .eq('user_id', userId)
-    .eq('role_in_job', 'helper')
+    .eq('role', 'helper')
   if (error) throw error
   return (data || []).map(r => r.jobs).filter(Boolean)
 }
@@ -49,7 +49,7 @@ export async function getJobsForHelpee(userId) {
            job_specifications(job_type_name))
     `)
     .eq('user_id', userId)
-    .eq('role_in_job', 'helpee')
+    .eq('role', 'helpee')
   if (error) throw error
   return (data || []).map(r => r.jobs).filter(Boolean)
 }
@@ -118,11 +118,11 @@ export async function createJob(jobData, answers = [], associatedUsers = {}) {
   }
 
   const assocRows = []
-  if (associatedUsers.helpee_id) assocRows.push({ job_id: job.id, user_id: associatedUsers.helpee_id, role_in_job: 'helpee' })
-  if (associatedUsers.supervisor_id) assocRows.push({ job_id: job.id, user_id: associatedUsers.supervisor_id, role_in_job: 'supervisor' })
+  if (associatedUsers.helpee_id) assocRows.push({ job_id: job.id, user_id: associatedUsers.helpee_id, role: 'helpee' })
+  if (associatedUsers.supervisor_id) assocRows.push({ job_id: job.id, user_id: associatedUsers.supervisor_id, role: 'supervisor' })
   if (associatedUsers.helper_ids?.length) {
     for (const hid of associatedUsers.helper_ids) {
-      assocRows.push({ job_id: job.id, user_id: hid, role_in_job: 'helper' })
+      assocRows.push({ job_id: job.id, user_id: hid, role: 'helper' })
     }
   }
   if (assocRows.length > 0) {
@@ -242,6 +242,6 @@ export async function saveRemark(jobId, helpeeId, rating, remark) {
 export async function upsertAssociatedUser(jobId, userId, roleInJob) {
   const { error } = await supabase
     .from('job_associated_users')
-    .upsert({ job_id: jobId, user_id: userId, role_in_job: roleInJob }, { onConflict: 'job_id,user_id' })
+    .upsert({ job_id: jobId, user_id: userId, role: roleInJob }, { onConflict: 'job_id,user_id' })
   if (error) throw error
 }

@@ -265,9 +265,9 @@ export default function JobForm() {
 
       // Associated users
       const assoc = job.associated_users || []
-      const h = assoc.find(a => a.role_in_job === 'helpee')
-      const he = assoc.find(a => a.role_in_job === 'helper')
-      const sv = assoc.find(a => a.role_in_job === 'supervisor')
+      const h = assoc.find(a => a.role === 'helpee')
+      const he = assoc.find(a => a.role === 'helper')
+      const sv = assoc.find(a => a.role === 'supervisor')
       if (h?.users) setHelpee(h.users)
       if (he?.users) setHelper(he.users)
       if (sv?.users) setSupervisor(sv.users)
