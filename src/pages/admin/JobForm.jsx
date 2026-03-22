@@ -177,7 +177,7 @@ export default function JobForm() {
 
   const [form, setForm] = useState({
     job_name: '', job_description: '', job_type_id: '', job_from_date: '', job_to_date: '',
-    job_time: '', job_location: '', job_requester_id: null, department_id: null,
+    job_start_time: '', job_location: '', job_requester_id: null, department_id: null,
   })
   const [jobId, setJobId] = useState('Auto-generated')
   const [status, setStatus] = useState('request_raised')
@@ -244,7 +244,7 @@ export default function JobForm() {
         job_type_id: job.job_type_id || '',
         job_from_date: job.job_from_date || '',
         job_to_date: job.job_to_date || '',
-        job_time: job.job_time || '',
+        job_start_time: job.job_start_time || '',
         job_location: job.job_location || '',
         job_requester_id: job.job_requester_id,
         department_id: job.department_id,
@@ -413,8 +413,8 @@ export default function JobForm() {
                       onChange={e => setField('job_to_date', e.target.value)} readOnly={isReadOnly} />
                   </FormRow>
                   <FormRow label="Job Time" labelWidth="w-40">
-                    <input type="time" className={inputClass} value={form.job_time}
-                      onChange={e => setField('job_time', e.target.value)} readOnly={isReadOnly} />
+                    <input type="time" className={inputClass} value={form.job_start_time}
+                      onChange={e => setField('job_start_time', e.target.value)} readOnly={isReadOnly} />
                   </FormRow>
                   <FormRow label="Job Location" labelWidth="w-40">
                     <input className={inputClass} value={form.job_location}
@@ -434,8 +434,8 @@ export default function JobForm() {
                     onChange={e => setField('job_to_date', e.target.value)} readOnly={isReadOnly} />
                 </FormRow>
                 <FormRow label="Job Start Time" labelWidth="w-40">
-                  <input type="time" className={inputClass} value={form.job_time}
-                    onChange={e => setField('job_time', e.target.value)} readOnly={isReadOnly} />
+                  <input type="time" className={inputClass} value={form.job_start_time}
+                    onChange={e => setField('job_start_time', e.target.value)} readOnly={isReadOnly} />
                 </FormRow>
                 <FormRow label="Job Location" labelWidth="w-40">
                   <input className={inputClass} value={form.job_location}

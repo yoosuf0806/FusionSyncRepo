@@ -6,7 +6,7 @@ export async function getJobs({ search = '', statusFilter = '' } = {}) {
     .from('jobs')
     .select(`
       id, job_id, job_name, job_category, job_type_id, status,
-      job_from_date, job_to_date, job_time, job_location, job_description,
+      job_from_date, job_to_date, job_start_time, job_location, job_description,
       created_at, job_specifications(job_type_name)
     `)
     .order('created_at', { ascending: false })
@@ -98,7 +98,7 @@ export async function createJob(jobData, answers = [], associatedUsers = {}) {
       job_description: jobData.job_description || null,
       job_from_date: jobData.job_from_date,
       job_to_date: jobData.job_to_date,
-      job_time: jobData.job_time || null,
+      job_start_time: jobData.job_start_time || null,
       job_location: jobData.job_location || null,
       job_requester_id: jobData.job_requester_id,
       department_id: jobData.department_id || null,
@@ -151,7 +151,7 @@ export async function updateJob(id, jobData, answers = []) {
       job_description: jobData.job_description || null,
       job_from_date: jobData.job_from_date,
       job_to_date: jobData.job_to_date,
-      job_time: jobData.job_time || null,
+      job_start_time: jobData.job_start_time || null,
       job_location: jobData.job_location || null,
     })
     .eq('id', id)

@@ -1,5 +1,12 @@
+import { createClient } from '@supabase/supabase-js'
 import { supabase } from '../supabase/client'
-import { adminSupabase } from '../supabase/adminClient'
+
+// Dedicated signup client — no session persistence so it never overwrites the admin's session
+const signupClient = createClient(
+  import.meta.env.VITE_SUPABASE_URL,
+  import.meta.env.VITE_SUPABASE_ANON_KEY,
+  { auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false } }
+)
 
 export async function getUsers({ search = '', userType = '' } = {}) {
   let query = supabase
@@ -41,17 +48,17 @@ export async function getUserByAuthId(authId) {
 }
 
 export async function createUser(userData, password) {
-  if (!adminSupabase) throw new Error('Admin client not available')
-
   const email = `${userData.user_name.toLowerCase().replace(/\s+/g, '.')}@helpinghands.local`
 
-  const { data: authData, error: authError } = await adminSupabase.auth.admin.createUser({
+  // Use signupClient (anon key, no session persistence) so admin session is not overwritten.
+  // Requires "Enable email confirmations" to be DISABLED in Supabase Auth settings.
+  const { data: authData, error: authError } = await signupClient.auth.signUp({
     email,
     password,
-    email_confirm: true,
-    user_metadata: { username: userData.user_name, role: userData.user_type },
+    options: { data: { username: userData.user_name, role: userData.user_type } },
   })
   if (authError) throw authError
+  if (!authData.user) throw new Error('User creation failed — enable "Disable email confirmations" in Supabase Auth settings.')
 
   const { data, error } = await supabase.from('users').insert({
     auth_user_id: authData.user.id,
@@ -65,10 +72,7 @@ export async function createUser(userData, password) {
     is_active: true,
   }).select().single()
 
-  if (error) {
-    await adminSupabase.auth.admin.deleteUser(authData.user.id).catch(() => {})
-    throw error
-  }
+  if (error) throw error
 
   // Send welcome notification
   await supabase.from('notifications').insert({
@@ -114,7 +118,6 @@ export async function deleteUser(id) {
     .eq('id', id)
   if (error) throw error
 
-  if (adminSupabase && user.auth_user_id) {
-    await adminSupabase.auth.admin.deleteUser(user.auth_user_id).catch(() => {})
-  }
+  // Auth user is soft-deleted via is_active=false above.
+  // Hard-delete from auth.users can be done from the Supabase dashboard if needed.
 }
