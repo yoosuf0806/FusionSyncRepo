@@ -1,24 +1,20 @@
 import { useState, useEffect } from 'react'
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import MainLayout from '../../layouts/MainLayout'
 import {
   getDepartmentById, createDepartment, updateDepartment,
   addUserToDepartment, removeUserFromDepartment,
 } from '../../services/departmentService'
+import { getUsers } from '../../services/userService'
 import FormRow from '../../components/FormRow'
 import ConfirmModal from '../../components/ConfirmModal'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import ErrorBanner from '../../components/ErrorBanner'
+import SearchInput from '../../components/SearchInput'
 
 const CUSTOMER_BASIS = ['One-time', 'Recurring', 'Corporate', 'All']
 const PRICING_STRUCTURE = ['Quotation', 'Hourly', 'Daily basis']
 
-const PencilIcon = () => (
-  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-      d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-  </svg>
-)
 const TrashIcon = () => (
   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
@@ -26,10 +22,81 @@ const TrashIcon = () => (
   </svg>
 )
 
+/* ── Inline User Picker Modal ─────────────────────────────────── */
+function UserPickerModal({ onSelect, onClose, excludeIds = [] }) {
+  const [users, setUsers] = useState([])
+  const [search, setSearch] = useState('')
+  const [roleFilter, setRoleFilter] = useState('')
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    getUsers({ search, userType: roleFilter }).then(data => {
+      setUsers(data || [])
+      setLoading(false)
+    }).catch(() => setLoading(false))
+  }, [search, roleFilter])
+
+  const roles = ['helper', 'helpee', 'supervisor']
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-hh-lg shadow-xl w-full max-w-2xl max-h-[80vh] flex flex-col">
+        <div className="flex items-center justify-between p-4 border-b">
+          <h3 className="font-semibold text-base">Select User</h3>
+          <button onClick={onClose} className="text-hh-placeholder hover:text-hh-text text-xl">✕</button>
+        </div>
+
+        <div className="p-4 flex gap-2 flex-wrap">
+          <SearchInput
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search by name or ID"
+            className="flex-1 min-w-[200px]"
+          />
+          {roles.map(r => (
+            <button key={r} onClick={() => setRoleFilter(prev => prev === r ? '' : r)}
+              className={`px-3 py-1.5 rounded-full text-xs font-medium capitalize transition-colors
+                ${roleFilter === r ? 'bg-hh-green text-white' : 'bg-white border border-gray-200 text-hh-text hover:bg-gray-50'}`}>
+              {r}
+            </button>
+          ))}
+        </div>
+
+        <div className="overflow-y-auto flex-1 px-4 pb-4 space-y-1">
+          {loading ? (
+            <p className="text-center text-sm text-hh-placeholder py-8">Loading...</p>
+          ) : users.length === 0 ? (
+            <p className="text-center text-sm text-hh-placeholder py-8">No users found</p>
+          ) : users.map(u => {
+            const excluded = excludeIds.includes(u.id)
+            return (
+              <div key={u.id}
+                className={`flex items-center justify-between p-3 rounded-hh border gap-3
+                  ${excluded ? 'opacity-40 bg-gray-50' : 'bg-white hover:bg-green-50 cursor-pointer'}`}>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate">{u.user_name}</p>
+                  <p className="text-xs text-hh-placeholder">{u.user_id} · <span className="capitalize">{u.user_type}</span></p>
+                </div>
+                <button
+                  disabled={excluded}
+                  onClick={() => !excluded && onSelect(u)}
+                  className={`btn-select text-xs px-4 py-1.5 flex-shrink-0 ${excluded ? 'opacity-50 cursor-not-allowed' : ''}`}
+                >
+                  {excluded ? 'Added' : 'Select'}
+                </button>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ── Main DepartmentForm ─────────────────────────────────────── */
 export default function DepartmentForm() {
   const navigate = useNavigate()
   const { id } = useParams()
-  const [searchParams] = useSearchParams()
   const isEdit = Boolean(id)
 
   const [form, setForm] = useState({
@@ -37,15 +104,17 @@ export default function DepartmentForm() {
     currency: '', customer_basis: '', pricing_structure: '',
   })
   const [deptId, setDeptId] = useState('Auto-generated')
+  // deptUsers = records already saved in DB (for edit mode)
   const [deptUsers, setDeptUsers] = useState([])
+  // pendingUsers = users selected but not yet saved (for create mode)
+  const [pendingUsers, setPendingUsers] = useState([])
   const [loading, setLoading] = useState(isEdit)
   const [saving, setSaving] = useState(false)
   const [errors, setErrors] = useState({})
   const [apiError, setApiError] = useState('')
   const [removeTarget, setRemoveTarget] = useState(null)
-  const [savedDeptId, setSavedDeptId] = useState(null)
+  const [showUserPicker, setShowUserPicker] = useState(false)
 
-  // Load dept for edit mode
   useEffect(() => {
     if (!isEdit) return
     getDepartmentById(id).then(dept => {
@@ -59,23 +128,9 @@ export default function DepartmentForm() {
       })
       setDeptId(dept.department_id || 'Auto-generated')
       setDeptUsers(dept.department_users || [])
-      setSavedDeptId(dept.id)
       setLoading(false)
     }).catch(e => { setApiError(e.message); setLoading(false) })
   }, [id, isEdit])
-
-  // After return from search page, add the selected user
-  useEffect(() => {
-    const userId = searchParams.get('addUser')
-    const targetId = savedDeptId || id
-    if (!userId || !targetId) return
-    addUserToDepartment(targetId, userId).then(() => {
-      getDepartmentById(targetId).then(dept => setDeptUsers(dept.department_users || []))
-    }).catch(e => setApiError(e.message))
-    // Remove the query param so it doesn't re-trigger
-    navigate(window.location.pathname, { replace: true })
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams])
 
   const set = (key, val) => {
     setForm(prev => ({ ...prev, [key]: val }))
@@ -90,27 +145,36 @@ export default function DepartmentForm() {
     return e
   }
 
-  const handleSave = async () => {
-    const e = validate()
-    if (Object.keys(e).length > 0) { setErrors(e); return }
-    setSaving(true)
+  // IDs of all users already in the dept (DB + pending) — used to disable in picker
+  const allUserIds = [
+    ...deptUsers.map(du => du.user_id),
+    ...pendingUsers.map(u => u.id),
+  ]
+
+  const handleSelectUser = async (user) => {
+    setShowUserPicker(false)
     setApiError('')
-    try {
-      if (isEdit) {
-        await updateDepartment(id, form)
-      } else {
-        const newDept = await createDepartment(form)
-        setSavedDeptId(newDept.id)
+
+    if (isEdit) {
+      // Edit mode — add to DB immediately, then refresh list
+      try {
+        await addUserToDepartment(id, user.id)
+        const dept = await getDepartmentById(id)
+        setDeptUsers(dept.department_users || [])
+      } catch (e) {
+        setApiError(e.message)
       }
-      navigate('/admin/departments')
-    } catch (err) {
-      setApiError(err.message)
-    } finally {
-      setSaving(false)
+    } else {
+      // Create mode — add to pending list (saved after dept is created)
+      setPendingUsers(prev => [...prev, user])
     }
   }
 
-  const handleRemoveUser = async () => {
+  const handleRemovePending = (userId) => {
+    setPendingUsers(prev => prev.filter(u => u.id !== userId))
+  }
+
+  const handleRemoveSaved = async () => {
     try {
       await removeUserFromDepartment(removeTarget.id)
       setDeptUsers(prev => prev.filter(u => u.id !== removeTarget.id))
@@ -121,15 +185,34 @@ export default function DepartmentForm() {
     }
   }
 
+  const handleSave = async () => {
+    const e = validate()
+    if (Object.keys(e).length > 0) { setErrors(e); return }
+    setSaving(true)
+    setApiError('')
+    try {
+      if (isEdit) {
+        await updateDepartment(id, form)
+      } else {
+        const newDept = await createDepartment(form)
+        // Now add all pending users to the newly created department
+        for (const user of pendingUsers) {
+          await addUserToDepartment(newDept.id, user.id).catch(() => {})
+        }
+        setPendingUsers([])
+      }
+      navigate('/admin/departments')
+    } catch (err) {
+      setApiError(err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const inputClass = (field) =>
     `form-cell flex-1 w-full outline-none text-sm ${errors[field] ? 'border border-hh-error' : ''}`
 
   if (loading) return <MainLayout title="Department"><LoadingSpinner /></MainLayout>
-
-  const currentId = isEdit ? id : savedDeptId
-  const searchReturnUrl = currentId
-    ? `/admin/departments/${currentId}/edit`
-    : '/admin/departments/new'
 
   return (
     <MainLayout title="Department">
@@ -182,32 +265,58 @@ export default function DepartmentForm() {
         {/* Department Users */}
         <div>
           <h2 className="text-base font-semibold mb-3">Department Users</h2>
-          <button
-            onClick={() => navigate(`/admin/search-users/dept?returnTo=${encodeURIComponent(searchReturnUrl)}`)}
-            className="btn-add mb-3"
-            title="Add User"
-          >
-            ⊕
-          </button>
+          <button onClick={() => setShowUserPicker(true)} className="btn-add mb-3" title="Add User">⊕</button>
 
+          {/* Users already saved to DB (edit mode) */}
           {deptUsers.length > 0 && (
-            <div className="space-y-2">
-              <div className="grid grid-cols-[110px_1fr_140px_100px] gap-2">
+            <div className="space-y-2 mb-2">
+              <div className="grid grid-cols-[110px_1fr_130px_80px] gap-2">
                 {['ID', 'Name', 'Type', 'Action'].map(h => (
                   <div key={h} className="table-header rounded-hh-lg px-2 text-xs">{h}</div>
                 ))}
               </div>
               {deptUsers.map(du => (
-                <div key={du.id} className="grid grid-cols-[110px_1fr_140px_100px] gap-2">
+                <div key={du.id} className="grid grid-cols-[110px_1fr_130px_80px] gap-2 items-center">
                   <div className="table-row rounded-hh-lg px-2 text-xs">{du.users?.user_id || '—'}</div>
                   <div className="table-row rounded-hh-lg px-2 text-xs">{du.users?.user_name || '—'}</div>
                   <div className="table-row rounded-hh-lg px-2 text-xs capitalize">{du.users?.user_type || '—'}</div>
                   <div className="table-row rounded-hh-lg px-2 gap-1">
-                    <button onClick={() => setRemoveTarget(du)} className="btn-icon w-8 h-8 hover:text-hh-error" title="Remove"><TrashIcon /></button>
+                    <button onClick={() => setRemoveTarget(du)} className="btn-icon w-8 h-8 hover:text-hh-error" title="Remove">
+                      <TrashIcon />
+                    </button>
                   </div>
                 </div>
               ))}
             </div>
+          )}
+
+          {/* Pending users (create mode — not yet in DB) */}
+          {pendingUsers.length > 0 && (
+            <div className="space-y-2">
+              {deptUsers.length === 0 && (
+                <div className="grid grid-cols-[110px_1fr_130px_80px] gap-2">
+                  {['ID', 'Name', 'Type', 'Action'].map(h => (
+                    <div key={h} className="table-header rounded-hh-lg px-2 text-xs">{h}</div>
+                  ))}
+                </div>
+              )}
+              {pendingUsers.map(u => (
+                <div key={u.id} className="grid grid-cols-[110px_1fr_130px_80px] gap-2 items-center">
+                  <div className="table-row rounded-hh-lg px-2 text-xs">{u.user_id || '—'}</div>
+                  <div className="table-row rounded-hh-lg px-2 text-xs">{u.user_name}</div>
+                  <div className="table-row rounded-hh-lg px-2 text-xs capitalize">{u.user_type}</div>
+                  <div className="table-row rounded-hh-lg px-2 gap-1">
+                    <button onClick={() => handleRemovePending(u.id)} className="btn-icon w-8 h-8 hover:text-hh-error" title="Remove">
+                      <TrashIcon />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {deptUsers.length === 0 && pendingUsers.length === 0 && (
+            <p className="text-sm text-hh-placeholder">No users added yet. Click ⊕ to add users.</p>
           )}
         </div>
 
@@ -219,11 +328,21 @@ export default function DepartmentForm() {
           <button onClick={() => navigate('/admin/departments')} className="btn-filter">Cancel</button>
         </div>
 
+        {/* Confirm remove saved user */}
         {removeTarget && (
           <ConfirmModal
             message={`Remove ${removeTarget.users?.user_name} from this department?`}
-            onConfirm={handleRemoveUser}
+            onConfirm={handleRemoveSaved}
             onCancel={() => setRemoveTarget(null)}
+          />
+        )}
+
+        {/* Inline User Picker Modal */}
+        {showUserPicker && (
+          <UserPickerModal
+            onSelect={handleSelectUser}
+            onClose={() => setShowUserPicker(false)}
+            excludeIds={allUserIds}
           />
         )}
       </div>

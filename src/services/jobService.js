@@ -1,13 +1,13 @@
 import { supabase } from '../supabase/client'
 
 export async function getJobs({ search = '', statusFilter = '' } = {}) {
+  // Removed users join — not needed for list view, and FK hint caused 400 errors
   let query = supabase
     .from('jobs')
     .select(`
       id, job_id, job_name, job_category, job_type_id, status,
       job_from_date, job_to_date, job_time, job_location, job_description,
-      created_at, job_specifications(job_type_name),
-      users!jobs_job_requester_id_fkey(user_name)
+      created_at, job_specifications(job_type_name)
     `)
     .order('created_at', { ascending: false })
 
@@ -55,12 +55,13 @@ export async function getJobsForHelpee(userId) {
 }
 
 export async function getJobById(id) {
+  // Use simple join without FK hint — only one FK from jobs to users (job_requester_id)
   const { data: job, error } = await supabase
     .from('jobs')
     .select(`
       *,
       job_specifications(job_type_name),
-      users!jobs_job_requester_id_fkey(user_name),
+      users(user_name),
       departments(department_name)
     `)
     .eq('id', id)

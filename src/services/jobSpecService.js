@@ -24,10 +24,11 @@ export async function getJobSpecById(id) {
     .single()
   if (error) throw error
 
+  // DB column is job_spec_id (FK to job_specifications.id)
   const { data: questions, error: qErr } = await supabase
     .from('job_spec_questions')
-    .select('*')
-    .eq('job_type_id', id)
+    .select('id, job_spec_id, question_text, question_order')
+    .eq('job_spec_id', id)
     .order('question_order')
   if (qErr) throw qErr
 
@@ -35,10 +36,11 @@ export async function getJobSpecById(id) {
 }
 
 export async function getQuestionsForSpec(specId) {
+  // DB column is job_spec_id (FK to job_specifications.id) — NOT job_type_id
   const { data, error } = await supabase
     .from('job_spec_questions')
-    .select('*')
-    .eq('job_type_id', specId)
+    .select('id, job_spec_id, question_text, question_order')
+    .eq('job_spec_id', specId)
     .order('question_order')
   if (error) throw error
   return data || []
@@ -54,11 +56,11 @@ export async function createJobSpec(specData, questions = []) {
 
   const validQuestions = questions.filter(q => q.trim())
   if (validQuestions.length > 0) {
+    // Use job_spec_id as FK column (not job_type_id). No is_required column in DB.
     const rows = validQuestions.map((q, i) => ({
-      job_type_id: spec.id,
+      job_spec_id: spec.id,
       question_text: q,
       question_order: i + 1,
-      is_required: false,
     }))
     const { error: qErr } = await supabase.from('job_spec_questions').insert(rows)
     if (qErr) throw qErr
@@ -73,15 +75,15 @@ export async function updateJobSpec(id, specData, questions = []) {
     .eq('id', id)
   if (error) throw error
 
-  await supabase.from('job_spec_questions').delete().eq('job_type_id', id)
+  // Delete by job_spec_id (DB FK column name)
+  await supabase.from('job_spec_questions').delete().eq('job_spec_id', id)
 
   const validQuestions = questions.filter(q => q.trim())
   if (validQuestions.length > 0) {
     const rows = validQuestions.map((q, i) => ({
-      job_type_id: id,
+      job_spec_id: id,
       question_text: q,
       question_order: i + 1,
-      is_required: false,
     }))
     const { error: qErr } = await supabase.from('job_spec_questions').insert(rows)
     if (qErr) throw qErr
