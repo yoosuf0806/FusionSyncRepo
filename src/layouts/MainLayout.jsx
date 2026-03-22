@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { getUnreadCount } from '../services/notificationService'
 
 const BellIcon = () => (
   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -23,20 +24,41 @@ const MenuIcon = () => (
   </svg>
 )
 
+const LogoutIcon = () => (
+  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+      d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+  </svg>
+)
+
 export default function MainLayout({ children, title }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [unreadCount, setUnreadCount] = useState(0)
+  const [showUserMenu, setShowUserMenu] = useState(false)
   const navigate = useNavigate()
   const location = useLocation()
-  const { role, isAdmin, isSupervisor } = useAuth()
+  const { role, isAdmin, isSupervisor, signOut, user: authUser } = useAuth()
 
   const navItems = [
-    { label: 'Manage Users',           path: `/${role}/manage-users`,  show: isAdmin || isSupervisor },
-    { label: 'Manage Jobs',            path: `/${role}/manage-jobs`,   show: true },
-    { label: 'Manage Job Specifications', path: `/${role}/job-specs`,  show: isAdmin || isSupervisor },
-    { label: 'Manage Setup',           path: '/admin/setup',           show: isAdmin },
+    { label: 'Manage Users',             path: '/admin/manage-users', show: isAdmin || isSupervisor },
+    { label: 'Manage Jobs',              path: '/admin/manage-jobs',  show: true },
+    { label: 'Manage Job Specifications',path: '/admin/job-specs',    show: isAdmin || isSupervisor },
+    { label: 'Manage Setup',             path: '/admin/setup',        show: isAdmin },
   ].filter(item => item.show)
 
   const isActive = (path) => location.pathname.startsWith(path)
+
+  // Load unread notification count — authUser from context is already the DB user record
+  useEffect(() => {
+    if (!authUser?.id) return
+    getUnreadCount(authUser.id).then(setUnreadCount).catch(() => {})
+  }, [authUser, location.pathname])
+
+  const handleSignOut = async () => {
+    setShowUserMenu(false)
+    await signOut()
+    navigate('/')
+  }
 
   return (
     <div className="flex min-h-screen bg-hh-mint">
@@ -63,7 +85,7 @@ export default function MainLayout({ children, title }) {
 
         {/* Nav items — only visible when expanded */}
         {sidebarOpen && (
-          <nav className="flex flex-col gap-3 px-3 mt-2">
+          <nav className="flex flex-col gap-3 px-3 mt-2 flex-1">
             {navItems.map(item => (
               <button
                 key={item.path}
@@ -78,6 +100,17 @@ export default function MainLayout({ children, title }) {
                 {item.label}
               </button>
             ))}
+
+            {/* Sign out at bottom of sidebar */}
+            <div className="mt-auto pt-4 pb-3">
+              <button
+                onClick={handleSignOut}
+                className="w-full flex items-center gap-2 justify-center px-3 py-2.5 rounded-pill text-sm font-medium bg-white/10 text-white hover:bg-white/20 transition-colors"
+              >
+                <LogoutIcon />
+                Sign Out
+              </button>
+            </div>
           </nav>
         )}
       </div>
@@ -95,7 +128,6 @@ export default function MainLayout({ children, title }) {
 
         {/* Top Header */}
         <header className="flex items-center gap-3 px-4 py-3 bg-hh-mint sticky top-0 z-10">
-          {/* Spacer for sidebar width */}
           <div className="flex-1 flex justify-center">
             <div className="page-title-bar min-w-[200px] px-10">
               <span className="text-base font-medium">{title}</span>
@@ -104,20 +136,47 @@ export default function MainLayout({ children, title }) {
 
           {/* Right buttons */}
           <div className="flex items-center gap-2 flex-shrink-0">
+            {/* Notification bell */}
             <button
               onClick={() => navigate('/notifications')}
               className="btn-icon relative"
               title="Notifications"
             >
               <BellIcon />
+              {unreadCount > 0 && (
+                <span className="absolute -top-1 -right-1 w-4 h-4 bg-hh-error rounded-full text-white text-[10px] font-bold flex items-center justify-center">
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
             </button>
-            <button
-              onClick={() => navigate('/profile')}
-              className="btn-icon"
-              title="Profile"
-            >
-              <PersonIcon />
-            </button>
+
+            {/* Profile / User menu */}
+            <div className="relative">
+              <button
+                onClick={() => setShowUserMenu(!showUserMenu)}
+                className="btn-icon"
+                title="Profile"
+              >
+                <PersonIcon />
+              </button>
+              {showUserMenu && (
+                <div className="absolute right-0 top-12 bg-white rounded-hh-lg shadow-hh-lg py-1 w-40 z-20">
+                  <button
+                    onClick={() => { navigate('/profile'); setShowUserMenu(false) }}
+                    className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50 transition-colors"
+                  >
+                    My Profile
+                  </button>
+                  <button
+                    onClick={handleSignOut}
+                    className="w-full text-left px-4 py-2 text-sm text-hh-error hover:bg-red-50 transition-colors flex items-center gap-2"
+                  >
+                    <LogoutIcon />
+                    Sign Out
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </header>
 

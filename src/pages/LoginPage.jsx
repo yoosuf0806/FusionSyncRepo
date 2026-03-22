@@ -73,7 +73,7 @@ export default function LoginPage({ role }) {
         {/* Email / Username */}
         <input
           type="text"
-          placeholder="Username"
+          placeholder="Username or Email"
           value={email}
           onChange={e => { setEmail(e.target.value); setFieldErrors(p => ({...p, email: ''})) }}
           onKeyDown={handleKeyDown}

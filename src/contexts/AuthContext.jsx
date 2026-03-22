@@ -17,10 +17,15 @@ export function AuthProvider({ children }) {
       else setLoading(false)
     })
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setSession(session)
-      if (session) loadUserProfile(session.user.id)
-      else { setUser(null); setRole(null); setLoading(false) }
+      if (session) {
+        loadUserProfile(session.user.id)
+      } else {
+        setUser(null)
+        setRole(null)
+        setLoading(false)
+      }
     })
 
     return () => subscription.unsubscribe()

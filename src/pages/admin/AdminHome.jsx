@@ -1,4 +1,4 @@
-// Page 6 — Admin Home Dashboard
+// Page 6 — Admin / Supervisor / Helper Home Dashboard
 import { useNavigate } from 'react-router-dom'
 import MainLayout from '../../layouts/MainLayout'
 import { useAuth } from '../../contexts/AuthContext'
@@ -6,22 +6,22 @@ import { useAuth } from '../../contexts/AuthContext'
 const NAV_CARDS = [
   {
     label: ['Manage', 'Users'],
-    path: (role) => `/${role}/manage-users`,
+    path: '/admin/manage-users',
     roles: ['admin', 'supervisor'],
   },
   {
     label: ['Manage', 'Jobs'],
-    path: (role) => `/${role}/manage-jobs`,
+    path: '/admin/manage-jobs',
     roles: ['admin', 'supervisor', 'helper', 'helpee'],
   },
   {
     label: ['Manage', 'Job', 'Specifications'],
-    path: (role) => `/${role}/job-specs`,
+    path: '/admin/job-specs',
     roles: ['admin', 'supervisor'],
   },
   {
     label: ['Manage', 'Setup'],
-    path: () => '/admin/setup',
+    path: '/admin/setup',
     roles: ['admin'],
   },
 ]
@@ -39,7 +39,7 @@ export default function AdminHome() {
           {visibleCards.map((card, i) => (
             <button
               key={i}
-              onClick={() => navigate(card.path(role))}
+              onClick={() => navigate(card.path)}
               className="
                 bg-hh-green-med text-white rounded-hh-xl shadow-hh
                 w-36 h-32 flex flex-col items-center justify-center gap-1

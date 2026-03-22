@@ -1,10 +1,10 @@
-export default function SearchInput({ value, onChange, placeholder = 'Search' }) {
+export default function SearchInput({ value, onChange, placeholder = 'Search', className = '' }) {
   return (
-    <div className="search-input w-56">
+    <div className={`search-input ${className}`}>
       <input
         type="text"
         value={value}
-        onChange={e => onChange(e.target.value)}
+        onChange={onChange}
         placeholder={placeholder}
         className="flex-1 outline-none text-sm text-hh-text placeholder-hh-placeholder bg-transparent"
       />
