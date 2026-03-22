@@ -6,14 +6,10 @@ import FormRow from '../../components/FormRow'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import ErrorBanner from '../../components/ErrorBanner'
 
-const CUSTOMER_BASIS = ['One-time', 'Recurring', 'Corporate', 'All']
-const PRICING_STRUCTURE = ['Quotation', 'Hourly', 'Daily basis']
-
 export default function ManageSetup() {
   const navigate = useNavigate()
   const [form, setForm] = useState({
-    business_name: '', business_address: '', business_reg_id: '',
-    currency: '', customer_basis: '', pricing_structure: '',
+    business_name: '', business_address: '', business_reg_id: '', currency: '',
   })
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -29,8 +25,6 @@ export default function ManageSetup() {
           business_address: data.business_address || '',
           business_reg_id: data.business_reg_id || '',
           currency: data.currency || '',
-          customer_basis: data.customer_basis || '',
-          pricing_structure: data.pricing_structure || '',
         })
       }
     }).catch(e => setError(e.message)).finally(() => setLoading(false))
@@ -107,27 +101,8 @@ export default function ManageSetup() {
         </FormRow>
         {errors.currency && <p className="text-hh-error text-xs">{errors.currency}</p>}
 
-        <FormRow label="Customer Basis" labelWidth="w-52">
-          <select className={inputClass('customer_basis')} value={form.customer_basis}
-            onChange={e => set('customer_basis', e.target.value)}>
-            <option value="">-- Select --</option>
-            {CUSTOMER_BASIS.map(b => <option key={b} value={b.toLowerCase().replace(' ', '_')}>{b}</option>)}
-          </select>
-        </FormRow>
-
-        <FormRow label="Pricing Structure" labelWidth="w-52">
-          <select className={inputClass('pricing_structure')} value={form.pricing_structure}
-            onChange={e => set('pricing_structure', e.target.value)}>
-            <option value="">-- Select --</option>
-            {PRICING_STRUCTURE.map(p => <option key={p} value={p.toLowerCase().replace(' ', '_')}>{p}</option>)}
-          </select>
-        </FormRow>
-
         <FormRow label="View Departments" labelWidth="w-52">
-          <button
-            onClick={() => navigate('/admin/departments')}
-            className="btn-select w-full"
-          >
+          <button onClick={() => navigate('/admin/departments')} className="btn-select w-full">
             Configure Departments
           </button>
         </FormRow>

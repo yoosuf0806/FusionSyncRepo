@@ -89,6 +89,7 @@ export async function getJobById(id) {
 }
 
 export async function createJob(jobData, answers = [], associatedUsers = {}) {
+  const isFrequent = jobData.job_category === 'frequent'
   const { data: job, error } = await supabase
     .from('jobs')
     .insert({
@@ -96,8 +97,14 @@ export async function createJob(jobData, answers = [], associatedUsers = {}) {
       job_category: jobData.job_category,
       job_type_id: jobData.job_type_id || null,
       job_description: jobData.job_description || null,
-      job_from_date: jobData.job_from_date,
-      job_to_date: jobData.job_to_date,
+      // One-time fields
+      job_date: !isFrequent ? (jobData.job_date || null) : null,
+      // Frequent fields
+      job_from_date: isFrequent ? (jobData.job_from_date || null) : null,
+      job_to_date: isFrequent ? (jobData.job_to_date || null) : null,
+      job_end_time: isFrequent ? (jobData.job_end_time || null) : null,
+      pricing_structure: isFrequent ? (jobData.pricing_structure || 'daily') : null,
+      // Shared time field
       job_start_time: jobData.job_start_time || null,
       job_location: jobData.job_location || null,
       job_requester_id: jobData.job_requester_id,
@@ -144,13 +151,17 @@ export async function updateJobStatus(jobId, newStatus) {
 }
 
 export async function updateJob(id, jobData, answers = []) {
+  const isFrequent = jobData.job_category === 'frequent'
   const { data, error } = await supabase
     .from('jobs')
     .update({
       job_name: jobData.job_name,
       job_description: jobData.job_description || null,
-      job_from_date: jobData.job_from_date,
-      job_to_date: jobData.job_to_date,
+      job_date: !isFrequent ? (jobData.job_date || null) : null,
+      job_from_date: isFrequent ? (jobData.job_from_date || null) : null,
+      job_to_date: isFrequent ? (jobData.job_to_date || null) : null,
+      job_end_time: isFrequent ? (jobData.job_end_time || null) : null,
+      pricing_structure: isFrequent ? (jobData.pricing_structure || 'daily') : null,
       job_start_time: jobData.job_start_time || null,
       job_location: jobData.job_location || null,
     })
@@ -244,4 +255,61 @@ export async function upsertAssociatedUser(jobId, userId, roleInJob) {
     .from('job_associated_users')
     .upsert({ job_id: jobId, user_id: userId, role: roleInJob }, { onConflict: 'job_id,user_id' })
   if (error) throw error
+}
+
+export async function getAttendanceForJob(jobId) {
+  const { data, error } = await supabase
+    .from('job_attendance')
+    .select('*')
+    .eq('job_id', jobId)
+    .order('attendance_date')
+  if (error) throw error
+  return data || []
+}
+
+export async function upsertAttendanceRow(jobId, rowData) {
+  const payload = {
+    job_id: jobId,
+    attendance_date: rowData.attendance_date,
+    check_in_time: rowData.check_in_time || null,
+    check_out_time: rowData.check_out_time || null,
+    att_status: rowData.att_status || 'pending_approval',
+    submitted_at: rowData.submitted_at || null,
+    resubmitted_at: rowData.resubmitted_at || null,
+  }
+  if (rowData.id) {
+    const { data, error } = await supabase
+      .from('job_attendance')
+      .update(payload)
+      .eq('id', rowData.id)
+      .select()
+      .single()
+    if (error) throw error
+    return data
+  }
+  const { data, error } = await supabase
+    .from('job_attendance')
+    .upsert(payload, { onConflict: 'job_id,attendance_date' })
+    .select()
+    .single()
+  if (error) throw error
+  return data
+}
+
+export async function updateAttendanceStatus(rowId, newStatus, rejectionReason) {
+  const payload = {
+    att_status: newStatus,
+    reviewed_at: new Date().toISOString(),
+  }
+  if (newStatus === 'rejected' && rejectionReason) {
+    payload.rejection_reason = rejectionReason
+  }
+  const { data, error } = await supabase
+    .from('job_attendance')
+    .update(payload)
+    .eq('id', rowId)
+    .select()
+    .single()
+  if (error) throw error
+  return data
 }

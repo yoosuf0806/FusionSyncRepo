@@ -49,7 +49,12 @@ export async function getQuestionsForSpec(specId) {
 export async function createJobSpec(specData, questions = []) {
   const { data: spec, error } = await supabase
     .from('job_specifications')
-    .insert({ job_type_name: specData.job_type_name, is_active: true })
+    .insert({
+      job_type_name: specData.job_type_name,
+      daily_rate: specData.daily_rate ?? 0,
+      hourly_rate: specData.hourly_rate ?? 0,
+      is_active: true,
+    })
     .select()
     .single()
   if (error) throw error
@@ -71,7 +76,11 @@ export async function createJobSpec(specData, questions = []) {
 export async function updateJobSpec(id, specData, questions = []) {
   const { error } = await supabase
     .from('job_specifications')
-    .update({ job_type_name: specData.job_type_name })
+    .update({
+      job_type_name: specData.job_type_name,
+      daily_rate: specData.daily_rate ?? 0,
+      hourly_rate: specData.hourly_rate ?? 0,
+    })
     .eq('id', id)
   if (error) throw error
 

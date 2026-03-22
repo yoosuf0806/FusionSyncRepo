@@ -34,6 +34,7 @@ export default function ManageJobs() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [deleteTarget, setDeleteTarget] = useState(null)
+  const [showTypeModal, setShowTypeModal] = useState(false)
 
   // authUser from context IS the DB user record
   const dbUser = authUser
@@ -107,7 +108,7 @@ export default function ManageJobs() {
         )}
 
         {canManage && (
-          <button onClick={() => navigate('/admin/jobs/new')} className="btn-add" title="Add Job">
+          <button onClick={() => setShowTypeModal(true)} className="btn-add" title="Add Job">
             ⊕
           </button>
         )}
@@ -170,6 +171,32 @@ export default function ManageJobs() {
           />
         )}
       </div>
+
+      {/* ── Job Type Selection Modal ───────────────── */}
+      {showTypeModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
+          <div className="bg-hh-mint rounded-hh-xl shadow-hh-lg w-full max-w-sm p-8 space-y-6">
+            <h2 className="text-lg font-semibold text-center text-hh-text">Select Job Type</h2>
+            <div className="flex gap-4 justify-center">
+              <button
+                onClick={() => { setShowTypeModal(false); navigate('/admin/jobs/new', { state: { category: 'one-time' } }) }}
+                className="flex-1 py-4 bg-white text-hh-text font-medium rounded-hh border-2 border-hh-green hover:bg-hh-green hover:text-white transition-colors"
+              >
+                One-Time Job
+              </button>
+              <button
+                onClick={() => { setShowTypeModal(false); navigate('/admin/jobs/new', { state: { category: 'frequent' } }) }}
+                className="flex-1 py-4 bg-white text-hh-text font-medium rounded-hh border-2 border-hh-green hover:bg-hh-green hover:text-white transition-colors"
+              >
+                Frequent Job
+              </button>
+            </div>
+            <button onClick={() => setShowTypeModal(false)} className="w-full btn-filter text-sm">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </MainLayout>
   )
 }

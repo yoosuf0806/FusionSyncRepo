@@ -12,18 +12,17 @@ export async function getBusinessSetup() {
 
 export async function saveBusinessSetup(setupData) {
   const existing = await getBusinessSetup()
+  const payload = {
+    business_name: setupData.business_name,
+    business_address: setupData.business_address || null,
+    business_reg_id: setupData.business_reg_id || null,
+    currency: setupData.currency || null,
+  }
 
   if (existing) {
     const { data, error } = await supabase
       .from('business_setup')
-      .update({
-        business_name: setupData.business_name,
-        business_address: setupData.business_address || null,
-        business_reg_id: setupData.business_reg_id || null,
-        currency: setupData.currency || null,
-        customer_basis: setupData.customer_basis || null,
-        pricing_structure: setupData.pricing_structure || null,
-      })
+      .update(payload)
       .eq('id', existing.id)
       .select()
       .single()
@@ -32,14 +31,7 @@ export async function saveBusinessSetup(setupData) {
   } else {
     const { data, error } = await supabase
       .from('business_setup')
-      .insert({
-        business_name: setupData.business_name,
-        business_address: setupData.business_address || null,
-        business_reg_id: setupData.business_reg_id || null,
-        currency: setupData.currency || null,
-        customer_basis: setupData.customer_basis || null,
-        pricing_structure: setupData.pricing_structure || null,
-      })
+      .insert(payload)
       .select()
       .single()
     if (error) throw error
