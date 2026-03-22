@@ -628,13 +628,15 @@ export default function JobForm() {
           </div>
         )}
 
-        {/* ── SAVE (Create mode) ───────────────────── */}
-        {!isEdit && canManage && (
+        {/* ── SAVE / UPDATE buttons ───────────────── */}
+        {canManage && (
           <div className="flex gap-3">
             <button onClick={handleSave} disabled={saving} className="btn-action px-10">
-              {saving ? 'Saving...' : 'Create Job'}
+              {saving ? 'Saving...' : isEdit ? 'Save Changes' : 'Create Job'}
             </button>
-            <button onClick={() => navigate('/admin/manage-jobs')} className="btn-filter">Cancel</button>
+            <button onClick={() => navigate('/admin/manage-jobs')} className="btn-filter">
+              {isEdit ? 'Back' : 'Cancel'}
+            </button>
           </div>
         )}
       </div>
