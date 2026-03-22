@@ -48,7 +48,7 @@ export async function getUserByAuthId(authId) {
 }
 
 export async function createUser(userData, password) {
-  const email = `${userData.user_name.toLowerCase().replace(/\s+/g, '.')}@helpinghands.local`
+  const email = `${userData.user_name.toLowerCase().replace(/\s+/g, '.')}@helpinghands.app`
 
   // Use signupClient (anon key, no session persistence) so admin session is not overwritten.
   // Requires "Enable email confirmations" to be DISABLED in Supabase Auth settings.
