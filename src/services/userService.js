@@ -48,17 +48,18 @@ export async function getUserByAuthId(authId) {
 }
 
 export async function createUser(userData, password) {
-  const email = `${userData.user_name.toLowerCase().replace(/\s+/g, '.')}@helpinghands.app`
+  const email = userData.user_email.trim().toLowerCase()
+  if (!email) throw new Error('Email is required to create a user.')
 
   // Use signupClient (anon key, no session persistence) so admin session is not overwritten.
-  // Requires "Enable email confirmations" to be DISABLED in Supabase Auth settings.
+  // Requires "Enable email confirmations" to be DISABLED in Supabase Auth → Email settings.
   const { data: authData, error: authError } = await signupClient.auth.signUp({
     email,
     password,
     options: { data: { username: userData.user_name, role: userData.user_type } },
   })
   if (authError) throw authError
-  if (!authData.user) throw new Error('User creation failed — enable "Disable email confirmations" in Supabase Auth settings.')
+  if (!authData.user) throw new Error('User creation failed. Make sure "Enable email confirmations" is disabled in Supabase Auth settings.')
 
   const { data, error } = await supabase.from('users').insert({
     auth_user_id: authData.user.id,

@@ -29,7 +29,7 @@ async function main() {
   }
 
   const ADMIN_USERNAME = 'Admin'
-  const ADMIN_EMAIL = 'admin@helpinghands.app'
+  const ADMIN_EMAIL = 'admin@helpinghands.local'
   const ADMIN_PASSWORD = 'Admin@123'
 
   const admin = createClient(supabaseUrl, serviceRoleKey, {
@@ -129,7 +129,7 @@ async function main() {
 
   console.log('\nBootstrap complete.')
   console.log('Login identifier: Admin')
-  console.log('Email mapping   : admin@helpinghands.app')
+  console.log('Email mapping   : admin@helpinghands.local')
   console.log('Password        : Admin@123')
   console.log('Password can be changed after login using Supabase updateUser flow.')
 }

@@ -71,6 +71,11 @@ export default function UserForm() {
   const validate = () => {
     const e = {}
     if (!form.user_name.trim()) e.user_name = 'Name is required'
+    if (!form.user_email.trim()) {
+      e.user_email = 'Email is required'
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.user_email.trim())) {
+      e.user_email = 'Enter a valid email address'
+    }
     if (!isEdit && !form.password) e.password = 'Password is required for new users'
     if (!isEdit && form.password && form.password.length < 6) e.password = 'Password must be at least 6 characters'
     if (!form.department_id) e.department_id = 'Department is required'
@@ -139,6 +144,22 @@ export default function UserForm() {
           />
         </FormRow>
         {errors.user_name && <p className="text-hh-error text-xs ml-52">{errors.user_name}</p>}
+
+        {/* Email */}
+        <FormRow label="Email">
+          <input
+            type="email"
+            className={inputClass('user_email')}
+            value={form.user_email}
+            onChange={e => set('user_email', e.target.value)}
+            placeholder="user@example.com"
+            readOnly={isEdit}
+          />
+        </FormRow>
+        {errors.user_email && <p className="text-hh-error text-xs ml-52">{errors.user_email}</p>}
+        {isEdit && (
+          <p className="text-xs text-hh-placeholder ml-52">Email cannot be changed after account creation.</p>
+        )}
 
         {/* Password (create only) */}
         {!isEdit && (

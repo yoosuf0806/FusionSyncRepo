@@ -4,7 +4,7 @@ function normalizeLoginEmail(identifier) {
   const value = identifier.trim()
   if (value.includes('@')) return value.toLowerCase()
   // Allow username-style login (e.g. "Admin") by mapping to a controlled domain.
-  return `${value.toLowerCase()}@helpinghands.app`
+  return `${value.toLowerCase()}@helpinghands.local`
 }
 
 export async function loginUser(identifier, password) {
