@@ -107,14 +107,14 @@ export async function createUser(userData, password) {
 
   if (error) throw error
 
-  // Send welcome notification
+  // Send welcome notification — ignore errors so user creation still succeeds
   await supabase.from('notifications').insert({
     recipient_user_id: data.id,
     message: `Welcome to Helping Hands, ${userData.user_name}! Your account has been created as ${userData.user_type}.`,
     notification_type: 'system',
     is_read: false,
     delivery_channels: ['in_app'],
-  }).catch(() => {})
+  }).then(() => {}, () => {})
 
   return data
 }
