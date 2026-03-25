@@ -28,3 +28,6 @@ logs/
 *.log
 
 .vercel
+
+# Local Netlify folder
+.netlify
