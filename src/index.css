@@ -1,0 +1,115 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+  body {
+    @apply bg-hh-mint text-hh-text font-sans;
+    margin: 0;
+    padding: 0;
+  }
+}
+
+@layer components {
+  /* Page Background */
+  .page-bg {
+    @apply bg-hh-mint min-h-screen;
+  }
+
+  /* White card/cell base */
+  .hh-card {
+    @apply bg-white rounded-hh-lg shadow-hh;
+  }
+
+  /* Green action button */
+  .btn-action {
+    @apply bg-hh-green text-hh-text font-medium rounded-hh px-4 min-h-btn
+           flex items-center justify-center cursor-pointer
+           hover:bg-green-600 transition-colors duration-150;
+  }
+
+  /* Light green login button */
+  .btn-login {
+    @apply bg-hh-green-light text-hh-text font-medium rounded-pill px-6 min-h-btn
+           w-full flex items-center justify-center cursor-pointer
+           hover:bg-green-300 transition-colors duration-150;
+  }
+
+  /* Select pill */
+  .btn-select {
+    @apply bg-hh-green-med text-hh-text font-medium rounded-pill px-4
+           flex items-center justify-center cursor-pointer
+           hover:bg-green-500 transition-colors duration-150;
+    height: 38px;
+  }
+
+  /* Filter button inactive */
+  .btn-filter {
+    @apply bg-white text-hh-text font-medium rounded-hh px-4 min-h-btn shadow-hh
+           flex items-center justify-center cursor-pointer
+           hover:bg-gray-50 transition-colors duration-150;
+  }
+
+  /* Filter button active */
+  .btn-filter-active {
+    @apply bg-hh-green-med text-hh-text font-medium rounded-hh px-4 min-h-btn shadow-hh
+           flex items-center justify-center cursor-pointer;
+  }
+
+  /* Page title pill */
+  .page-title-bar {
+    @apply bg-white rounded-pill shadow-hh px-8 min-h-btn
+           flex items-center justify-center text-hh-text font-medium text-base;
+  }
+
+  /* Icon button (edit / delete / notification / profile) */
+  .btn-icon {
+    @apply bg-white rounded-hh shadow-hh w-11 h-11
+           flex items-center justify-center cursor-pointer
+           hover:bg-gray-50 transition-colors duration-150;
+  }
+
+  /* Add (⊕) button */
+  .btn-add {
+    @apply bg-white rounded-full shadow-hh w-11 h-11 border-2 border-hh-text
+           flex items-center justify-center cursor-pointer text-xl font-bold
+           hover:bg-gray-50 transition-colors duration-150;
+  }
+
+  /* Form input row cell */
+  .form-cell {
+    @apply bg-white rounded-hh shadow-hh px-3 flex items-center;
+    height: 44px;
+  }
+
+  /* Form label cell */
+  .form-label {
+    @apply bg-white rounded-hh shadow-hh px-3 flex items-center justify-center
+           text-hh-text text-sm font-medium;
+    height: 44px;
+  }
+
+  /* Table row */
+  .table-row {
+    @apply bg-white rounded-hh shadow-hh flex items-center;
+    min-height: 48px;
+  }
+
+  /* Table header cell */
+  .table-header {
+    @apply bg-white rounded-hh shadow-hh flex items-center justify-center
+           text-hh-text font-semibold text-sm;
+    height: 50px;
+  }
+
+  /* Search input */
+  .search-input {
+    @apply bg-white rounded-hh shadow-hh px-4 flex items-center gap-2;
+    height: 44px;
+  }
+}

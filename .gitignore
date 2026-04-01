@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+npm-debug.log*
+
+# Build output
+dist/
+build/
+.vercel/
+
+# Environment variables — NEVER commit
+.env
+.env.local
+.env.*.local
+.env.production
+
+# Editor
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.vscode/
+.idea/
+
+# Logs
+logs/
+*.log
+
+.vercel
+
+# Local Netlify folder
+.netlify

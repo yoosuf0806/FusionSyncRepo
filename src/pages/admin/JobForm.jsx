@@ -1,0 +1,773 @@
+import { useState, useEffect, useCallback } from 'react'
+import { useNavigate, useParams, useLocation } from 'react-router-dom'
+import MainLayout from '../../layouts/MainLayout'
+import { useAuth } from '../../contexts/AuthContext'
+import {
+  getJobById, createJob, updateJob, updateJobStatus,
+  saveInvoice, upsertAssociatedUser,
+  getAttendanceForJob, upsertAttendanceRow, updateAttendanceStatus,
+} from '../../services/jobService'
+import { getJobSpecs, getQuestionsForSpec } from '../../services/jobSpecService'
+import { getUsers } from '../../services/userService'
+import FormRow from '../../components/FormRow'
+import LoadingSpinner from '../../components/LoadingSpinner'
+import ErrorBanner from '../../components/ErrorBanner'
+import ConfirmModal from '../../components/ConfirmModal'
+import { WORKFLOW_STAGES, JOB_STATUS_LABELS, getCompletedStages } from '../../constants/jobStatuses'
+
+const ATT_PAGE_SIZE = 10
+
+// ── User Picker Modal ──────────────────────────────────────────────────────
+function UserPickerModal({ roleFilter, onSelect, onClose }) {
+  const [users, setUsers] = useState([])
+  const [search, setSearch] = useState('')
+  const [loading, setLoading] = useState(true)
+  useEffect(() => {
+    setLoading(true)
+    getUsers({ search, userType: roleFilter }).then(data => { setUsers(data); setLoading(false) })
+      .catch(() => setLoading(false))
+  }, [search, roleFilter])
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
+      <div className="bg-white rounded-hh-xl shadow-hh-lg w-full max-w-2xl max-h-[80vh] flex flex-col">
+        <div className="flex items-center justify-between px-5 py-4 border-b">
+          <h3 className="font-semibold capitalize">Select {roleFilter}</h3>
+          <button onClick={onClose} className="btn-icon w-8 h-8 text-xl">✕</button>
+        </div>
+        <div className="px-5 py-3">
+          <input className="form-cell w-full outline-none text-sm" placeholder="Search users..."
+            value={search} onChange={e => setSearch(e.target.value)} />
+        </div>
+        <div className="flex-1 overflow-y-auto px-5 pb-4 space-y-2">
+          {loading ? <p className="text-sm text-hh-placeholder py-4 text-center">Loading...</p>
+            : users.length === 0 ? <p className="text-sm text-hh-placeholder py-4 text-center">No users found</p>
+            : users.map(u => (
+              <div key={u.id} className="flex items-center justify-between p-3 rounded-hh bg-gray-50 hover:bg-hh-mint/20">
+                <div>
+                  <p className="text-sm font-medium">{u.user_name}</p>
+                  <p className="text-xs text-hh-placeholder">{u.user_id} · {u.user_type}</p>
+                </div>
+                <button onClick={() => onSelect(u)} className="btn-select px-4 text-sm">Select</button>
+              </div>
+            ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Invoice Modal ──────────────────────────────────────────────────────────
+function InvoiceModal({ jobId, existing, onSave, onClose }) {
+  const [form, setForm] = useState({
+    invoice_amount: existing?.invoice_amount || '',
+    invoice_currency: existing?.invoice_currency || 'AUD',
+    invoice_date: existing?.invoice_date || '',
+    invoice_status: existing?.invoice_status || 'draft',
+    invoice_notes: existing?.invoice_notes || '',
+  })
+  const [saving, setSaving] = useState(false)
+  const handleSave = async () => {
+    setSaving(true)
+    try { await saveInvoice(jobId, form); onSave({ ...form }) } catch (e) { alert(e.message) } finally { setSaving(false) }
+  }
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
+      <div className="bg-white rounded-hh-xl shadow-hh-lg w-full max-w-sm p-6 space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold">Invoice Details</h3>
+          <button onClick={onClose} className="btn-icon w-8 h-8">✕</button>
+        </div>
+        {[
+          { label: 'Amount', key: 'invoice_amount', type: 'number' },
+          { label: 'Currency', key: 'invoice_currency', type: 'text' },
+          { label: 'Date', key: 'invoice_date', type: 'date' },
+          { label: 'Notes', key: 'invoice_notes', type: 'text' },
+        ].map(({ label, key, type }) => (
+          <FormRow key={key} label={label} labelWidth="w-24">
+            <input type={type} className="form-cell flex-1 w-full outline-none text-sm"
+              value={form[key]} onChange={e => setForm(p => ({ ...p, [key]: e.target.value }))} />
+          </FormRow>
+        ))}
+        <FormRow label="Status" labelWidth="w-24">
+          <select className="form-cell flex-1 outline-none text-sm" value={form.invoice_status}
+            onChange={e => setForm(p => ({ ...p, invoice_status: e.target.value }))}>
+            {['draft','sent','paid','void'].map(s => <option key={s} value={s} className="capitalize">{s}</option>)}
+          </select>
+        </FormRow>
+        <div className="flex gap-2 pt-2">
+          <button onClick={handleSave} disabled={saving} className="btn-action px-6">{saving ? 'Saving...' : 'Save Invoice'}</button>
+          <button onClick={onClose} className="btn-filter">Cancel</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Reject Reason Modal ────────────────────────────────────────────────────
+function RejectModal({ onConfirm, onClose }) {
+  const [reason, setReason] = useState('')
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
+      <div className="bg-white rounded-hh-xl shadow-hh-lg w-full max-w-sm p-6 space-y-3">
+        <h3 className="font-semibold">Rejection Reason</h3>
+        <textarea className="form-cell w-full outline-none text-sm h-24 resize-none py-2"
+          value={reason} onChange={e => setReason(e.target.value)} placeholder="Enter reason..." />
+        <div className="flex gap-2">
+          <button onClick={() => onConfirm(reason)} className="btn-action px-6 bg-hh-error hover:bg-red-600">Reject</button>
+          <button onClick={onClose} className="btn-filter">Cancel</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Workflow Display ───────────────────────────────────────────────────────
+function WorkflowDisplay({ status, associatedUsers }) {
+  const completed = getCompletedStages(status, associatedUsers)
+  return (
+    <div className="w-full overflow-x-auto py-2">
+      <div className="flex items-center gap-1 min-w-max">
+        {WORKFLOW_STAGES.map((stage, i) => {
+          const done = completed[stage.key]
+          return (
+            <div key={stage.key} className="flex items-center gap-1">
+              <div className={`flex flex-col items-center justify-center rounded-hh text-xs font-medium text-center w-20 h-11 px-1
+                ${done ? 'bg-hh-green text-white' : 'bg-gray-400 text-white'}`}>
+                {stage.label.map((l, j) => <span key={j}>{l}</span>)}
+              </div>
+              {i < WORKFLOW_STAGES.length - 1 && (
+                <svg className="w-4 h-4 flex-shrink-0 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                </svg>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ── Attendance Status Badge ────────────────────────────────────────────────
+const ATT_STATUS_STYLES = {
+  pending_approval: 'bg-yellow-100 text-yellow-800',
+  approved:         'bg-green-100 text-green-800',
+  rejected:         'bg-red-100 text-red-800',
+  resubmitted:      'bg-blue-100 text-blue-800',
+}
+const ATT_STATUS_LABELS = {
+  pending_approval: 'Pending',
+  approved:         'Approved',
+  rejected:         'Rejected',
+  resubmitted:      'Resubmitted',
+}
+
+// ── Main Component ──────────────────────────────────────────────────────────
+const JOB_CATEGORIES = { ONETIME: 'one-time', FREQUENT: 'frequent' }
+
+export default function JobForm() {
+  const navigate = useNavigate()
+  const { id } = useParams()
+  const location = useLocation()
+  const { user: authUser, isAdmin, isSupervisor, isHelper, isHelpee } = useAuth()
+
+  const isEdit = Boolean(id)
+  const [category, setCategory] = useState(() => {
+    if (location.state?.category) return location.state.category
+    if (location.pathname.includes('frequent')) return JOB_CATEGORIES.FREQUENT
+    return JOB_CATEGORIES.ONETIME
+  })
+
+  const [form, setForm] = useState({
+    job_name: '', job_description: '', job_type_id: '',
+    // one-time fields
+    job_date: '', job_start_time: '',
+    // frequent fields
+    job_from_date: '', job_to_date: '', job_end_time: '',
+    // shared
+    job_location: '', job_requester_id: null, department_id: null,
+    pricing_structure: 'daily',
+  })
+  const [jobId, setJobId] = useState('Auto-generated')
+  const [status, setStatus] = useState('request_raised')
+  const [dbJobId, setDbJobId] = useState(null)
+
+  const [specs, setSpecs] = useState([])
+  const [questions, setQuestions] = useState([])
+  const [answers, setAnswers] = useState([])
+  const [selectedSpec, setSelectedSpec] = useState(null)
+
+  const [helpee, setHelpee] = useState(null)
+  const [helper, setHelper] = useState(null)
+  const [supervisor, setSupervisor] = useState(null)
+  const [associatedUsers, setAssociatedUsers] = useState([])
+
+  const [invoice, setInvoice] = useState(null)
+  const [attendance, setAttendance] = useState([])
+  const [attPage, setAttPage] = useState(0)
+  const [rejectTarget, setRejectTarget] = useState(null)
+  const [savingAttRow, setSavingAttRow] = useState(null)
+
+  const [loading, setLoading] = useState(isEdit)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  const [userPickerRole, setUserPickerRole] = useState(null)
+  const [showInvoiceModal, setShowInvoiceModal] = useState(false)
+  const [showInvoiceView, setShowInvoiceView] = useState(false)
+  const [statusConfirm, setStatusConfirm] = useState(null)
+  const [dbUser, setDbUser] = useState(null)
+
+  const canManage = isAdmin || isSupervisor
+
+  useEffect(() => {
+    if (!authUser) return
+    setDbUser(authUser)
+    if (!isEdit) setForm(prev => ({ ...prev, job_requester_id: authUser.id }))
+  }, [authUser, isEdit])
+
+  useEffect(() => {
+    getJobSpecs().then(setSpecs).catch(() => {})
+  }, [])
+
+  const loadQuestions = useCallback(async (specId) => {
+    if (!specId) { setQuestions([]); setAnswers([]); setSelectedSpec(null); return }
+    try {
+      const qs = await getQuestionsForSpec(specId)
+      setQuestions(qs)
+      setAnswers(qs.map(q => ({ question_id: q.id, answer_text: '' })))
+      const spec = specs.find(s => s.id === specId)
+      setSelectedSpec(spec || null)
+    } catch { setQuestions([]) }
+  }, [specs])
+
+  useEffect(() => { loadQuestions(form.job_type_id) }, [form.job_type_id, loadQuestions])
+
+  useEffect(() => {
+    if (!isEdit) return
+    getJobById(id).then(job => {
+      const jc = job.job_category === JOB_CATEGORIES.FREQUENT ? JOB_CATEGORIES.FREQUENT : JOB_CATEGORIES.ONETIME
+      setCategory(jc)
+      setForm({
+        job_name: job.job_name || '',
+        job_description: job.job_description || '',
+        job_type_id: job.job_type_id || '',
+        job_date: job.job_date || '',
+        job_start_time: job.job_start_time || '',
+        job_from_date: job.job_from_date || '',
+        job_to_date: job.job_to_date || '',
+        job_end_time: job.job_end_time || '',
+        job_location: job.job_location || '',
+        job_requester_id: job.job_requester_id,
+        department_id: job.department_id,
+        pricing_structure: job.pricing_structure || 'daily',
+      })
+      setJobId(job.job_id || 'Auto-generated')
+      setStatus(job.status || 'request_raised')
+      setDbJobId(job.id)
+
+      if (job.answers?.length) {
+        setAnswers(job.answers.map(a => ({ question_id: a.question_id, answer_text: a.answer_text })))
+        setQuestions(job.answers.map(a => ({ id: a.question_id, question_text: a.job_spec_questions?.question_text || '' })))
+      }
+
+      const assoc = job.associated_users || []
+      setAssociatedUsers(assoc)
+      setHelpee(assoc.find(a => a.role === 'helpee')?.users || null)
+      setHelper(assoc.find(a => a.role === 'helper')?.users || null)
+      setSupervisor(assoc.find(a => a.role === 'supervisor')?.users || null)
+
+      if (job.invoice) setInvoice(job.invoice)
+
+      // Load attendance for frequent jobs
+      if (jc === JOB_CATEGORIES.FREQUENT) {
+        getAttendanceForJob(job.id).then(rows => setAttendance(rows)).catch(() => {})
+      }
+
+      setLoading(false)
+    }).catch(e => { setError(e.message); setLoading(false) })
+  }, [id, isEdit])
+
+  const setField = (key, val) => setForm(prev => ({ ...prev, [key]: val }))
+  const setAnswer = (qId, val) => setAnswers(prev => prev.map(a => a.question_id === qId ? { ...a, answer_text: val } : a))
+  const setAttRow = (rowId, key, val) => setAttendance(prev => prev.map(r => r.id === rowId ? { ...r, [key]: val } : r))
+
+  const handleUserSelected = (user) => {
+    const assocEntry = { role: userPickerRole, users: user }
+    if (userPickerRole === 'helpee') { setHelpee(user); setAssociatedUsers(prev => [...prev.filter(a => a.role !== 'helpee'), assocEntry]) }
+    else if (userPickerRole === 'helper') { setHelper(user); setAssociatedUsers(prev => [...prev.filter(a => a.role !== 'helper'), assocEntry]) }
+    else if (userPickerRole === 'supervisor') { setSupervisor(user); setAssociatedUsers(prev => [...prev.filter(a => a.role !== 'supervisor'), assocEntry]) }
+    setUserPickerRole(null)
+  }
+
+  const handleSave = async () => {
+    if (!form.job_name.trim()) { setError('Job Name is required'); return }
+    if (category === JOB_CATEGORIES.ONETIME && !form.job_date) { setError('Job Date is required'); return }
+    if (category === JOB_CATEGORIES.FREQUENT && (!form.job_from_date || !form.job_to_date)) { setError('Start and End Date are required'); return }
+    setSaving(true)
+    setError('')
+    try {
+      const assocUsers = {
+        helpee_id: helpee?.id,
+        helper_ids: helper ? [helper.id] : [],
+        supervisor_id: supervisor?.id,
+      }
+      if (isEdit) {
+        await updateJob(dbJobId, { ...form, job_category: category }, answers)
+        if (helpee) await upsertAssociatedUser(dbJobId, helpee.id, 'helpee')
+        if (helper) await upsertAssociatedUser(dbJobId, helper.id, 'helper')
+        if (supervisor) await upsertAssociatedUser(dbJobId, supervisor.id, 'supervisor')
+      } else {
+        await createJob({ ...form, job_category: category }, answers, assocUsers)
+      }
+      navigate('/admin/manage-jobs')
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleStatusAction = async (newStatus) => {
+    try {
+      await updateJobStatus(dbJobId, newStatus)
+      setStatus(newStatus)
+    } catch (e) { setError(e.message) }
+    setStatusConfirm(null)
+  }
+
+  // Attendance: submit a row (set check-in/out → pending_approval)
+  const handleSubmitRow = async (row) => {
+    if (!row.check_in_time || !row.check_out_time) { setError('Check In and Check Out times are required'); return }
+    setSavingAttRow(row.id)
+    try {
+      const updated = await upsertAttendanceRow(dbJobId, {
+        id: row.id,
+        attendance_date: row.attendance_date,
+        check_in_time: row.check_in_time,
+        check_out_time: row.check_out_time,
+        att_status: 'pending_approval',
+        submitted_at: new Date().toISOString(),
+        resubmitted_at: row.att_status === 'rejected' ? new Date().toISOString() : null,
+      })
+      setAttendance(prev => prev.map(r => r.id === row.id ? { ...r, ...updated } : r))
+    } catch (e) { setError(e.message) } finally { setSavingAttRow(null) }
+  }
+
+  const handleApproveRow = async (row) => {
+    setSavingAttRow(row.id)
+    try {
+      const updated = await updateAttendanceStatus(row.id, 'approved', null)
+      setAttendance(prev => prev.map(r => r.id === row.id ? { ...r, ...updated } : r))
+    } catch (e) { setError(e.message) } finally { setSavingAttRow(null) }
+  }
+
+  const handleRejectRow = async (row, reason) => {
+    setSavingAttRow(row.id)
+    try {
+      const updated = await updateAttendanceStatus(row.id, 'rejected', reason)
+      setAttendance(prev => prev.map(r => r.id === row.id ? { ...r, ...updated } : r))
+    } catch (e) { setError(e.message) } finally { setSavingAttRow(null); setRejectTarget(null) }
+  }
+
+  const isFrequent = category === JOB_CATEGORIES.FREQUENT
+  const isReadOnly = isHelpee || (isHelper && !isEdit)
+  const jobTitle = isFrequent ? 'Job (Frequent Job)' : 'Job (One-Time Job)'
+  const inputClass = 'form-cell flex-1 w-full outline-none text-sm'
+  const isHourly = form.pricing_structure === 'hourly'
+
+  // Attendance pagination
+  const attPages = Math.ceil(attendance.length / ATT_PAGE_SIZE)
+  const attSlice = attendance.slice(attPage * ATT_PAGE_SIZE, (attPage + 1) * ATT_PAGE_SIZE)
+
+  // Monthly total (current month, exclude rejected)
+  const now = new Date()
+  const monthlyTotal = attendance.reduce((sum, row) => {
+    const d = new Date(row.attendance_date)
+    if (d.getMonth() !== now.getMonth() || d.getFullYear() !== now.getFullYear()) return sum
+    if (row.att_status === 'rejected') return sum
+    return sum + (parseFloat(row.rate_for_day) || 0)
+  }, 0)
+
+  if (loading) return <MainLayout title={jobTitle}><LoadingSpinner /></MainLayout>
+
+  return (
+    <MainLayout title={jobTitle}>
+      <div className="max-w-4xl mx-auto space-y-6">
+        {error && <ErrorBanner message={error} onClose={() => setError('')} />}
+
+        {/* ── JOB DETAILS ─────────────────────────── */}
+        <section>
+          <h2 className="font-semibold text-base mb-3">Job Details</h2>
+          <div className={`grid gap-3 ${isFrequent ? 'grid-cols-2' : 'grid-cols-1 max-w-xl'}`}>
+            <div className="space-y-2">
+              <FormRow label="Job ID" labelWidth="w-40">
+                <div className="form-cell flex-1 text-sm text-hh-placeholder">{jobId}</div>
+              </FormRow>
+              <FormRow label="Job Type" labelWidth="w-40">
+                <select className={inputClass} value={form.job_type_id}
+                  onChange={e => setField('job_type_id', e.target.value)} disabled={isReadOnly}>
+                  <option value="">-- Select Job Type --</option>
+                  {specs.map(s => <option key={s.id} value={s.id}>{s.job_type_name}</option>)}
+                </select>
+              </FormRow>
+              <FormRow label="Job Name" labelWidth="w-40">
+                <input className={inputClass} value={form.job_name}
+                  onChange={e => setField('job_name', e.target.value)} placeholder="Job Name" readOnly={isReadOnly} />
+              </FormRow>
+              <FormRow label="Job Description" labelWidth="w-40">
+                <textarea className="form-cell flex-1 w-full outline-none text-sm h-16 resize-none py-2"
+                  value={form.job_description} onChange={e => setField('job_description', e.target.value)}
+                  placeholder="Description" readOnly={isReadOnly} />
+              </FormRow>
+
+              {/* ── ONE-TIME: single date + time ── */}
+              {!isFrequent && (
+                <>
+                  <FormRow label="Job Date" labelWidth="w-40">
+                    <input type="date" className={inputClass} value={form.job_date}
+                      onChange={e => setField('job_date', e.target.value)} readOnly={isReadOnly} />
+                  </FormRow>
+                  <FormRow label="Job Time" labelWidth="w-40">
+                    <input type="time" className={inputClass} value={form.job_start_time}
+                      onChange={e => setField('job_start_time', e.target.value)} readOnly={isReadOnly} />
+                  </FormRow>
+                  <FormRow label="Job Location" labelWidth="w-40">
+                    <input className={inputClass} value={form.job_location}
+                      onChange={e => setField('job_location', e.target.value)} placeholder="Location" readOnly={isReadOnly} />
+                  </FormRow>
+                  <FormRow label="Job Requester" labelWidth="w-40">
+                    <div className="form-cell flex-1 text-sm text-hh-placeholder">{dbUser?.user_name || 'Current User'}</div>
+                  </FormRow>
+                </>
+              )}
+            </div>
+
+            {/* ── FREQUENT: date range + times + pricing ── */}
+            {isFrequent && (
+              <div className="space-y-2">
+                <FormRow label="Start Date" labelWidth="w-40">
+                  <input type="date" className={inputClass} value={form.job_from_date}
+                    onChange={e => setField('job_from_date', e.target.value)} readOnly={isReadOnly} />
+                </FormRow>
+                <FormRow label="End Date" labelWidth="w-40">
+                  <input type="date" className={inputClass} value={form.job_to_date}
+                    onChange={e => setField('job_to_date', e.target.value)} readOnly={isReadOnly} />
+                </FormRow>
+                <FormRow label="Job Start Time" labelWidth="w-40">
+                  <input type="time" className={inputClass} value={form.job_start_time}
+                    onChange={e => setField('job_start_time', e.target.value)} readOnly={isReadOnly} />
+                </FormRow>
+                <FormRow label="Job End Time" labelWidth="w-40">
+                  <input type="time" className={inputClass} value={form.job_end_time}
+                    onChange={e => setField('job_end_time', e.target.value)} readOnly={isReadOnly} />
+                </FormRow>
+                <FormRow label="Job Location" labelWidth="w-40">
+                  <input className={inputClass} value={form.job_location}
+                    onChange={e => setField('job_location', e.target.value)} placeholder="Location" readOnly={isReadOnly} />
+                </FormRow>
+                <FormRow label="Job Requester" labelWidth="w-40">
+                  <div className="form-cell flex-1 text-sm text-hh-placeholder">{dbUser?.user_name || 'Current User'}</div>
+                </FormRow>
+
+                {/* Pricing Structure — Admin/Supervisor only */}
+                {canManage && (
+                  <FormRow label="Pricing Structure" labelWidth="w-40">
+                    <div className="flex gap-3 items-center flex-1">
+                      {[{ val: 'daily', label: 'Daily Rate' }, { val: 'hourly', label: 'Hourly Rate' }].map(opt => (
+                        <button
+                          key={opt.val}
+                          type="button"
+                          onClick={() => !isReadOnly && setField('pricing_structure', opt.val)}
+                          className={`px-4 py-1.5 rounded-hh text-sm font-medium border-2 transition-colors
+                            ${form.pricing_structure === opt.val
+                              ? 'bg-hh-green text-white border-hh-green'
+                              : 'bg-white text-hh-text border-gray-300 hover:border-hh-green'}`}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </FormRow>
+                )}
+              </div>
+            )}
+          </div>
+        </section>
+
+        {/* ── JOB SPECIFIC QUESTIONS ────────────────── */}
+        {questions.length > 0 && (
+          <section>
+            <h2 className="font-semibold text-base mb-3">Job Specific Questions</h2>
+            <div className="space-y-2">
+              {questions.map((q, i) => (
+                <FormRow key={q.id} label={q.question_text} labelWidth="w-48">
+                  <input className={inputClass} value={answers[i]?.answer_text || ''}
+                    onChange={e => setAnswer(q.id, e.target.value)} placeholder="Enter Answer" readOnly={isReadOnly} />
+                </FormRow>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* ── ASSOCIATED USERS + INVOICE ─────────────── */}
+        <div className={`grid gap-6 ${canManage ? 'grid-cols-2' : 'grid-cols-1'}`}>
+          <section>
+            <h2 className="font-semibold text-base mb-3">Job Associated Users</h2>
+            <div className="space-y-2">
+              {[
+                { role: 'helpee', user: helpee },
+                { role: 'helper', user: helper },
+                { role: 'supervisor', user: supervisor },
+              ].map(({ role, user }) => (
+                <div key={role} className="flex gap-2 items-center">
+                  <div className="form-label w-28 capitalize flex-shrink-0">{role}</div>
+                  <div className="form-cell flex-1 text-sm">
+                    {user ? user.user_name : <span className="text-hh-placeholder capitalize">{role} Name</span>}
+                  </div>
+                  {canManage && (
+                    <button onClick={() => setUserPickerRole(role)} className="btn-add w-9 h-9 flex-shrink-0" title={`Add ${role}`}>⊕</button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {canManage && (
+            <section>
+              <h2 className="font-semibold text-base mb-3">Invoice Details</h2>
+              <div className="flex gap-2 items-center">
+                {invoice && (
+                  <button onClick={() => setShowInvoiceView(true)} className="btn-select px-4 text-sm">View Invoice</button>
+                )}
+                {isEdit && dbJobId && (
+                  <button onClick={() => setShowInvoiceModal(true)} className="btn-add w-9 h-9" title="Add/Edit Invoice">⊕</button>
+                )}
+              </div>
+              {invoice && (
+                <div className="mt-3 space-y-1 text-sm">
+                  <p><span className="font-medium">Amount:</span> {invoice.invoice_currency} {invoice.invoice_amount}</p>
+                  <p><span className="font-medium">Status:</span> <span className="capitalize">{invoice.invoice_status}</span></p>
+                  {invoice.invoice_notes && <p><span className="font-medium">Notes:</span> {invoice.invoice_notes}</p>}
+                </div>
+              )}
+            </section>
+          )}
+        </div>
+
+        {/* ── VIEW REMARK ───────────────────────────── */}
+        {isEdit && (
+          <div className="flex justify-end">
+            <button onClick={() => navigate(`/helpee/jobs/${dbJobId}/remark`)} className="btn-select px-5 text-sm">
+              View Remark
+            </button>
+          </div>
+        )}
+
+        {/* ── ACTION BUTTONS ────────────────────────── */}
+        {isEdit && canManage && (
+          <section>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {[
+                { label: 'Job Started', newStatus: 'job_started' },
+                { label: 'Job Complete', newStatus: 'job_finished' },
+                ...(!isHelper ? [
+                  { label: 'Payment Confirmed', newStatus: 'payment_confirmed' },
+                  { label: 'Job Close', newStatus: 'job_closed' },
+                ] : []),
+              ].map(({ label, newStatus }) => (
+                <button key={newStatus} onClick={() => setStatusConfirm({ label, newStatus })}
+                  disabled={status === newStatus}
+                  className={`btn-action ${status === newStatus ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* ── WORKFLOW DISPLAY ─────────────────────── */}
+        {isEdit && (
+          <section>
+            <h2 className="font-semibold text-base mb-3">Job Stage</h2>
+            <WorkflowDisplay status={status} associatedUsers={associatedUsers} />
+            <p className="text-xs text-hh-placeholder mt-2">
+              Current: <span className="font-medium capitalize">{JOB_STATUS_LABELS[status] || status}</span>
+            </p>
+          </section>
+        )}
+
+        {/* ── ATTENDANCE (Frequent jobs only) ──────── */}
+        {isFrequent && isEdit && !isHelpee && (
+          <section>
+            <h2 className="font-semibold text-base mb-3">Job Attendance</h2>
+
+            {attendance.length === 0 ? (
+              <p className="text-sm text-hh-placeholder">No attendance records yet. Save the job with date range first.</p>
+            ) : (
+              <>
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[900px] text-xs border-collapse">
+                    <thead>
+                      <tr>
+                        {['Date', 'Sched. Start', 'Sched. End', 'Check In', 'Check Out', 'Hrs',
+                          isHourly ? 'Rate/Hr' : 'Rate/Day',
+                          isHourly ? 'Amount' : '',
+                          'Status', 'Action'
+                        ].filter(Boolean).map(h => (
+                          <th key={h} className="table-header rounded-none px-2 py-2 text-left font-medium">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="space-y-1">
+                      {attSlice.map(row => {
+                        const isRejected = row.att_status === 'rejected'
+                        const isPending  = row.att_status === 'pending_approval' || row.att_status === 'resubmitted'
+                        const isApproved = row.att_status === 'approved'
+                        const canEdit    = canManage || isHelper
+                        const canSubmit  = canEdit && (!row.att_status || isRejected)
+                        const canApprove = canManage && isPending
+                        const canReject  = canManage && isPending
+                        const isSaving   = savingAttRow === row.id
+                        return (
+                          <tr key={row.id} className="border-b border-gray-100">
+                            <td className="px-2 py-1.5 font-medium">{row.attendance_date}</td>
+                            <td className="px-2 py-1.5 text-hh-placeholder">{row.job_start_time || '—'}</td>
+                            <td className="px-2 py-1.5 text-hh-placeholder">{row.job_end_time || '—'}</td>
+                            <td className="px-2 py-1.5">
+                              {canEdit && !isApproved
+                                ? <input type="time" className="form-cell outline-none text-xs w-24"
+                                    value={row.check_in_time || ''}
+                                    onChange={e => setAttRow(row.id, 'check_in_time', e.target.value)} />
+                                : <span>{row.check_in_time || '—'}</span>}
+                            </td>
+                            <td className="px-2 py-1.5">
+                              {canEdit && !isApproved
+                                ? <input type="time" className="form-cell outline-none text-xs w-24"
+                                    value={row.check_out_time || ''}
+                                    onChange={e => setAttRow(row.id, 'check_out_time', e.target.value)} />
+                                : <span>{row.check_out_time || '—'}</span>}
+                            </td>
+                            <td className="px-2 py-1.5">{row.total_hours != null ? Number(row.total_hours).toFixed(2) : '—'}</td>
+                            <td className="px-2 py-1.5">
+                              {isHourly
+                                ? (selectedSpec?.hourly_rate ?? '—')
+                                : (row.rate_for_day != null ? Number(row.rate_for_day).toFixed(2) : '—')}
+                            </td>
+                            {isHourly && (
+                              <td className="px-2 py-1.5">
+                                {row.total_hours != null && selectedSpec?.hourly_rate
+                                  ? (Number(row.total_hours) * Number(selectedSpec.hourly_rate)).toFixed(2)
+                                  : '—'}
+                              </td>
+                            )}
+                            <td className="px-2 py-1.5">
+                              <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${ATT_STATUS_STYLES[row.att_status] || 'bg-gray-100 text-gray-600'}`}>
+                                {ATT_STATUS_LABELS[row.att_status] || 'No Data'}
+                              </span>
+                              {isRejected && row.rejection_reason && (
+                                <p className="text-hh-error text-xs mt-0.5 max-w-[120px] truncate" title={row.rejection_reason}>
+                                  {row.rejection_reason}
+                                </p>
+                              )}
+                            </td>
+                            <td className="px-2 py-1.5">
+                              <div className="flex gap-1 flex-wrap">
+                                {(canSubmit || isRejected) && (
+                                  <button onClick={() => handleSubmitRow(row)} disabled={isSaving}
+                                    className="btn-filter text-xs px-2 py-1">
+                                    {isSaving ? '...' : isRejected ? 'Resubmit' : 'Submit'}
+                                  </button>
+                                )}
+                                {canApprove && (
+                                  <button onClick={() => handleApproveRow(row)} disabled={isSaving}
+                                    className="btn-action text-xs px-2 py-1">
+                                    {isSaving ? '...' : 'Approve'}
+                                  </button>
+                                )}
+                                {canReject && (
+                                  <button onClick={() => setRejectTarget(row)} disabled={isSaving}
+                                    className="text-xs px-2 py-1 bg-red-100 text-red-700 rounded-hh hover:bg-red-200">
+                                    Reject
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Pagination */}
+                {attPages > 1 && (
+                  <div className="flex items-center gap-2 mt-3 justify-center">
+                    <button onClick={() => setAttPage(p => Math.max(0, p - 1))} disabled={attPage === 0}
+                      className="btn-filter px-3 py-1 text-xs disabled:opacity-40">← Prev</button>
+                    <span className="text-xs text-hh-placeholder">Page {attPage + 1} of {attPages}</span>
+                    <button onClick={() => setAttPage(p => Math.min(attPages - 1, p + 1))} disabled={attPage === attPages - 1}
+                      className="btn-filter px-3 py-1 text-xs disabled:opacity-40">Next →</button>
+                  </div>
+                )}
+
+                {/* Monthly Total */}
+                <div className="mt-4 flex justify-end">
+                  <div className="bg-hh-mint border border-hh-green rounded-hh px-6 py-3 text-sm font-medium">
+                    Monthly Total: {monthlyTotal.toFixed(2)}
+                  </div>
+                </div>
+              </>
+            )}
+          </section>
+        )}
+
+        {/* ── SAVE / UPDATE buttons ───────────────── */}
+        {canManage && (
+          <div className="flex gap-3">
+            <button onClick={handleSave} disabled={saving} className="btn-action px-10">
+              {saving ? 'Saving...' : isEdit ? 'Save Changes' : 'Create Job'}
+            </button>
+            <button onClick={() => navigate('/admin/manage-jobs')} className="btn-filter">
+              {isEdit ? 'Back' : 'Cancel'}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* ── MODALS ───────────────────────────────────── */}
+      {userPickerRole && (
+        <UserPickerModal roleFilter={userPickerRole} onSelect={handleUserSelected} onClose={() => setUserPickerRole(null)} />
+      )}
+      {showInvoiceModal && dbJobId && (
+        <InvoiceModal jobId={dbJobId} existing={invoice}
+          onSave={(inv) => { setInvoice(inv); setShowInvoiceModal(false) }}
+          onClose={() => setShowInvoiceModal(false)} />
+      )}
+      {showInvoiceView && invoice && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
+          <div className="bg-white rounded-hh-xl shadow-hh-lg w-full max-w-sm p-6 space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold">Invoice</h3>
+              <button onClick={() => setShowInvoiceView(false)} className="btn-icon w-8 h-8">✕</button>
+            </div>
+            <p><span className="font-medium">Amount:</span> {invoice.invoice_currency} {invoice.invoice_amount}</p>
+            <p><span className="font-medium">Date:</span> {invoice.invoice_date || '—'}</p>
+            <p><span className="font-medium">Status:</span> <span className="capitalize">{invoice.invoice_status}</span></p>
+            {invoice.invoice_notes && <p><span className="font-medium">Notes:</span> {invoice.invoice_notes}</p>}
+          </div>
+        </div>
+      )}
+      {statusConfirm && (
+        <ConfirmModal message={`Mark job as "${statusConfirm.label}"?`}
+          onConfirm={() => handleStatusAction(statusConfirm.newStatus)}
+          onCancel={() => setStatusConfirm(null)} />
+      )}
+      {rejectTarget && (
+        <RejectModal
+          onConfirm={(reason) => handleRejectRow(rejectTarget, reason)}
+          onClose={() => setRejectTarget(null)} />
+      )}
+    </MainLayout>
+  )
+}
