@@ -139,6 +139,21 @@ export default function MainLayout({ children, title }) {
 
         {/* Top Header */}
         <header className="flex items-center gap-3 px-4 py-3 bg-hh-mint sticky top-0 z-10">
+
+          {/* Logo — navigates to role home */}
+          <button
+            onClick={() => navigate(homePath)}
+            title="Go to Home"
+            className="flex-shrink-0 flex items-center gap-2 group"
+          >
+            <div className="w-9 h-9 rounded-full bg-hh-sidebar flex items-center justify-center shadow-sm group-hover:opacity-90 transition-opacity">
+              <span className="text-white text-xs font-bold leading-none tracking-tight">HH</span>
+            </div>
+            <span className="hidden md:block text-hh-sidebar text-xs font-semibold leading-tight">
+              Helping<br />Hands
+            </span>
+          </button>
+
           <div className="flex-1 flex justify-center">
             <div className="page-title-bar min-w-[200px] px-10">
               <span className="text-base font-medium">{title}</span>
@@ -147,15 +162,6 @@ export default function MainLayout({ children, title }) {
 
           {/* Right buttons */}
           <div className="flex items-center gap-2 flex-shrink-0">
-            {/* Home button */}
-            <button
-              onClick={() => navigate(homePath)}
-              className="btn-icon"
-              title="Home"
-            >
-              <HomeIcon />
-            </button>
-
             {/* Notification bell */}
             <button
               onClick={() => navigate('/notifications')}

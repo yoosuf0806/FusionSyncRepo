@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { supabase } from '../supabase/client'
+import { normalizeLoginEmail } from './authService'
 
 // Admin client using service role key. Works when the key is a legacy JWT (eyJ...).
 // If VITE_SUPABASE_SERVICE_ROLE_KEY is set to a legacy JWT (from Supabase dashboard →
@@ -64,15 +65,16 @@ export async function getUserByAuthId(authId) {
 }
 
 export async function createUser(userData, password) {
-  const email = userData.user_email?.trim()
-  if (!email) throw new Error('Email address is required')
+  const contactEmail = userData.user_email?.trim() || null
+  // Auth email is always username-based so username login always works
+  const authEmail = normalizeLoginEmail(userData.user_name)
 
   let authUserId
 
   if (adminClient) {
     // Path A: legacy JWT service role key available — use admin API (no rate limits, no email confirm needed)
     const { data: authData, error: authError } = await adminClient.auth.admin.createUser({
-      email,
+      email: authEmail,
       password,
       email_confirm: true,
       user_metadata: { username: userData.user_name, role: userData.user_type },
@@ -82,7 +84,7 @@ export async function createUser(userData, password) {
   } else {
     // Path B: fallback — use anon signUp (requires email confirmation DISABLED in Supabase Auth settings)
     const { data: authData, error: authError } = await signupClient.auth.signUp({
-      email,
+      email: authEmail,
       password,
       options: { data: { username: userData.user_name, role: userData.user_type } },
     })
@@ -96,7 +98,7 @@ export async function createUser(userData, password) {
   const { data, error } = await supabase.from('users').insert({
     auth_user_id: authUserId,
     user_name: userData.user_name,
-    user_email: email,
+    user_email: contactEmail,
     user_type: userData.user_type,
     user_phone: userData.user_phone || null,
     user_location: userData.user_location || null,
@@ -135,6 +137,22 @@ export async function updateUser(id, userData) {
     .single()
   if (error) throw error
   return data
+}
+
+export async function adminResetUserPassword(dbUserId, newPassword) {
+  const { data: user, error: fetchErr } = await supabase
+    .from('users')
+    .select('auth_user_id')
+    .eq('id', dbUserId)
+    .single()
+  if (fetchErr) throw fetchErr
+
+  if (!adminClient) throw new Error('Admin client not available. Service role key required.')
+
+  const { error } = await adminClient.auth.admin.updateUserById(user.auth_user_id, {
+    password: newPassword,
+  })
+  if (error) throw error
 }
 
 export async function deleteUser(id) {

@@ -4,7 +4,7 @@ import MainLayout from '../../layouts/MainLayout'
 import { useAuth } from '../../contexts/AuthContext'
 import {
   getJobById, createJob, updateJob, updateJobStatus,
-  saveInvoice, upsertAssociatedUser,
+  saveInvoice, uploadInvoiceAttachment, upsertAssociatedUser, removeAssociatedUser,
   getAttendanceForJob, upsertAttendanceRow, updateAttendanceStatus,
 } from '../../services/jobService'
 import { getJobSpecs, getQuestionsForSpec } from '../../services/jobSpecService'
@@ -64,12 +64,34 @@ function InvoiceModal({ jobId, existing, onSave, onClose }) {
     invoice_date: existing?.invoice_date || '',
     invoice_status: existing?.invoice_status || 'draft',
     invoice_notes: existing?.invoice_notes || '',
+    attachment_url: existing?.attachment_url || '',
   })
+  const [file, setFile] = useState(null)
   const [saving, setSaving] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState('')
+
+  const ACCEPTED = '.pdf,.doc,.docx,.png,.jpg,.jpeg,.xls,.xlsx'
+
   const handleSave = async () => {
     setSaving(true)
-    try { await saveInvoice(jobId, form); onSave({ ...form }) } catch (e) { alert(e.message) } finally { setSaving(false) }
+    try {
+      let attachmentUrl = form.attachment_url
+      if (file) {
+        setUploadProgress('Uploading file...')
+        attachmentUrl = await uploadInvoiceAttachment(jobId, file)
+        setUploadProgress('')
+      }
+      const payload = { ...form, attachment_url: attachmentUrl }
+      await saveInvoice(jobId, payload)
+      onSave(payload)
+    } catch (e) {
+      alert(e.message)
+      setUploadProgress('')
+    } finally {
+      setSaving(false)
+    }
   }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
       <div className="bg-white rounded-hh-xl shadow-hh-lg w-full max-w-sm p-6 space-y-3">
@@ -94,6 +116,30 @@ function InvoiceModal({ jobId, existing, onSave, onClose }) {
             {['draft','sent','paid','void'].map(s => <option key={s} value={s} className="capitalize">{s}</option>)}
           </select>
         </FormRow>
+
+        {/* Attachment upload */}
+        <div className="space-y-1">
+          <p className="text-xs font-medium text-hh-text">Attachment</p>
+          <label className="flex items-center gap-2 form-cell cursor-pointer hover:bg-hh-mint/30 transition-colors">
+            <svg className="w-4 h-4 text-hh-green flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+            </svg>
+            <span className="text-xs text-hh-placeholder truncate">
+              {file ? file.name : (form.attachment_url ? 'Replace file' : 'Click to attach (PDF, Word, Excel, Image)')}
+            </span>
+            <input type="file" accept={ACCEPTED} className="hidden"
+              onChange={e => setFile(e.target.files?.[0] || null)} />
+          </label>
+          {form.attachment_url && !file && (
+            <a href={form.attachment_url} target="_blank" rel="noreferrer"
+              className="text-xs text-hh-green underline block">
+              View existing attachment ↗
+            </a>
+          )}
+          {uploadProgress && <p className="text-xs text-hh-placeholder">{uploadProgress}</p>}
+        </div>
+
         <div className="flex gap-2 pt-2">
           <button onClick={handleSave} disabled={saving} className="btn-action px-6">{saving ? 'Saving...' : 'Save Invoice'}</button>
           <button onClick={onClose} className="btn-filter">Cancel</button>
@@ -198,7 +244,7 @@ export default function JobForm() {
   const [selectedSpec, setSelectedSpec] = useState(null)
 
   const [helpee, setHelpee] = useState(null)
-  const [helper, setHelper] = useState(null)
+  const [helpers, setHelpers] = useState([])
   const [supervisor, setSupervisor] = useState(null)
   const [associatedUsers, setAssociatedUsers] = useState([])
 
@@ -274,7 +320,7 @@ export default function JobForm() {
       const assoc = job.associated_users || []
       setAssociatedUsers(assoc)
       setHelpee(assoc.find(a => a.role === 'helpee')?.users || null)
-      setHelper(assoc.find(a => a.role === 'helper')?.users || null)
+      setHelpers(assoc.filter(a => a.role === 'helper').map(a => a.users).filter(Boolean))
       setSupervisor(assoc.find(a => a.role === 'supervisor')?.users || null)
 
       if (job.invoice) setInvoice(job.invoice)
@@ -294,10 +340,28 @@ export default function JobForm() {
 
   const handleUserSelected = (user) => {
     const assocEntry = { role: userPickerRole, users: user }
-    if (userPickerRole === 'helpee') { setHelpee(user); setAssociatedUsers(prev => [...prev.filter(a => a.role !== 'helpee'), assocEntry]) }
-    else if (userPickerRole === 'helper') { setHelper(user); setAssociatedUsers(prev => [...prev.filter(a => a.role !== 'helper'), assocEntry]) }
-    else if (userPickerRole === 'supervisor') { setSupervisor(user); setAssociatedUsers(prev => [...prev.filter(a => a.role !== 'supervisor'), assocEntry]) }
+    if (userPickerRole === 'helpee') {
+      setHelpee(user)
+      setAssociatedUsers(prev => [...prev.filter(a => a.role !== 'helpee'), assocEntry])
+    } else if (userPickerRole === 'helper') {
+      // Only add if not already in the list
+      if (!helpers.find(h => h.id === user.id)) {
+        setHelpers(prev => [...prev, user])
+        setAssociatedUsers(prev => [...prev, assocEntry])
+      }
+    } else if (userPickerRole === 'supervisor') {
+      setSupervisor(user)
+      setAssociatedUsers(prev => [...prev.filter(a => a.role !== 'supervisor'), assocEntry])
+    }
     setUserPickerRole(null)
+  }
+
+  const removeHelper = async (userId) => {
+    try {
+      if (isEdit && dbJobId) await removeAssociatedUser(dbJobId, userId)
+      setHelpers(prev => prev.filter(h => h.id !== userId))
+      setAssociatedUsers(prev => prev.filter(a => !(a.role === 'helper' && a.users?.id === userId)))
+    } catch (e) { setError(e.message) }
   }
 
   const handleSave = async () => {
@@ -309,13 +373,13 @@ export default function JobForm() {
     try {
       const assocUsers = {
         helpee_id: helpee?.id,
-        helper_ids: helper ? [helper.id] : [],
+        helper_ids: helpers.map(h => h.id),
         supervisor_id: supervisor?.id,
       }
       if (isEdit) {
         await updateJob(dbJobId, { ...form, job_category: category }, answers)
         if (helpee) await upsertAssociatedUser(dbJobId, helpee.id, 'helpee')
-        if (helper) await upsertAssociatedUser(dbJobId, helper.id, 'helper')
+        for (const h of helpers) await upsertAssociatedUser(dbJobId, h.id, 'helper')
         if (supervisor) await upsertAssociatedUser(dbJobId, supervisor.id, 'supervisor')
       } else {
         await createJob({ ...form, job_category: category }, answers, assocUsers)
@@ -515,21 +579,53 @@ export default function JobForm() {
           <section>
             <h2 className="font-semibold text-base mb-3">Job Associated Users</h2>
             <div className="space-y-2">
-              {[
-                { role: 'helpee', user: helpee },
-                { role: 'helper', user: helper },
-                { role: 'supervisor', user: supervisor },
-              ].map(({ role, user }) => (
-                <div key={role} className="flex gap-2 items-center">
-                  <div className="form-label w-28 capitalize flex-shrink-0">{role}</div>
-                  <div className="form-cell flex-1 text-sm">
-                    {user ? user.user_name : <span className="text-hh-placeholder capitalize">{role} Name</span>}
-                  </div>
+              {/* Helpee */}
+              <div className="flex gap-2 items-center">
+                <div className="form-label w-28 capitalize flex-shrink-0">Helpee</div>
+                <div className="form-cell flex-1 text-sm">
+                  {helpee ? helpee.user_name : <span className="text-hh-placeholder">Helpee Name</span>}
+                </div>
+                {canManage && (
+                  <button onClick={() => setUserPickerRole('helpee')} className="btn-add w-9 h-9 flex-shrink-0" title="Add Helpee">⊕</button>
+                )}
+              </div>
+
+              {/* Helpers — multiple allowed */}
+              <div className="space-y-1">
+                <div className="flex gap-2 items-center">
+                  <div className="form-label w-28 flex-shrink-0">Helper(s)</div>
+                  <div className="flex-1" />
                   {canManage && (
-                    <button onClick={() => setUserPickerRole(role)} className="btn-add w-9 h-9 flex-shrink-0" title={`Add ${role}`}>⊕</button>
+                    <button onClick={() => setUserPickerRole('helper')} className="btn-add w-9 h-9 flex-shrink-0" title="Add Helper">⊕</button>
                   )}
                 </div>
-              ))}
+                {helpers.length === 0 ? (
+                  <div className="flex gap-2 items-center">
+                    <div className="w-28 flex-shrink-0" />
+                    <div className="form-cell flex-1 text-sm text-hh-placeholder">No helpers assigned</div>
+                  </div>
+                ) : helpers.map(h => (
+                  <div key={h.id} className="flex gap-2 items-center">
+                    <div className="w-28 flex-shrink-0" />
+                    <div className="form-cell flex-1 text-sm">{h.user_name}</div>
+                    {canManage && (
+                      <button onClick={() => removeHelper(h.id)}
+                        className="btn-icon w-9 h-9 flex-shrink-0 hover:text-hh-error" title="Remove Helper">✕</button>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* Supervisor */}
+              <div className="flex gap-2 items-center">
+                <div className="form-label w-28 capitalize flex-shrink-0">Supervisor</div>
+                <div className="form-cell flex-1 text-sm">
+                  {supervisor ? supervisor.user_name : <span className="text-hh-placeholder">Supervisor Name</span>}
+                </div>
+                {canManage && (
+                  <button onClick={() => setUserPickerRole('supervisor')} className="btn-add w-9 h-9 flex-shrink-0" title="Add Supervisor">⊕</button>
+                )}
+              </div>
             </div>
           </section>
 
@@ -549,6 +645,13 @@ export default function JobForm() {
                   <p><span className="font-medium">Amount:</span> {invoice.invoice_currency} {invoice.invoice_amount}</p>
                   <p><span className="font-medium">Status:</span> <span className="capitalize">{invoice.invoice_status}</span></p>
                   {invoice.invoice_notes && <p><span className="font-medium">Notes:</span> {invoice.invoice_notes}</p>}
+                  {invoice.attachment_url && (
+                    <p>
+                      <span className="font-medium">Attachment:</span>{' '}
+                      <a href={invoice.attachment_url} target="_blank" rel="noreferrer"
+                        className="text-hh-green underline">View file ↗</a>
+                    </p>
+                  )}
                 </div>
               )}
             </section>
@@ -565,13 +668,13 @@ export default function JobForm() {
         )}
 
         {/* ── ACTION BUTTONS ────────────────────────── */}
-        {isEdit && canManage && (
+        {isEdit && (canManage || isHelper) && (
           <section>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               {[
                 { label: 'Job Started', newStatus: 'job_started' },
-                { label: 'Job Complete', newStatus: 'job_finished' },
-                ...(!isHelper ? [
+                { label: 'Job Finished', newStatus: 'job_finished' },
+                ...(canManage ? [
                   { label: 'Payment Confirmed', newStatus: 'payment_confirmed' },
                   { label: 'Job Close', newStatus: 'job_closed' },
                 ] : []),
@@ -723,13 +826,19 @@ export default function JobForm() {
         )}
 
         {/* ── SAVE / UPDATE buttons ───────────────── */}
-        {canManage && (
+        {canManage ? (
           <div className="flex gap-3">
             <button onClick={handleSave} disabled={saving} className="btn-action px-10">
               {saving ? 'Saving...' : isEdit ? 'Save Changes' : 'Create Job'}
             </button>
             <button onClick={() => navigate('/admin/manage-jobs')} className="btn-filter">
               {isEdit ? 'Back' : 'Cancel'}
+            </button>
+          </div>
+        ) : (
+          <div className="flex gap-3">
+            <button onClick={() => navigate('/admin/manage-jobs')} className="btn-filter px-8">
+              ← Back to Jobs
             </button>
           </div>
         )}
@@ -755,6 +864,13 @@ export default function JobForm() {
             <p><span className="font-medium">Date:</span> {invoice.invoice_date || '—'}</p>
             <p><span className="font-medium">Status:</span> <span className="capitalize">{invoice.invoice_status}</span></p>
             {invoice.invoice_notes && <p><span className="font-medium">Notes:</span> {invoice.invoice_notes}</p>}
+            {invoice.attachment_url && (
+              <p>
+                <span className="font-medium">Attachment:</span>{' '}
+                <a href={invoice.attachment_url} target="_blank" rel="noreferrer"
+                  className="text-hh-green underline">View file ↗</a>
+              </p>
+            )}
           </div>
         </div>
       )}

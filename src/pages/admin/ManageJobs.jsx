@@ -129,7 +129,12 @@ export default function ManageJobs() {
           ) : (
             jobs.map(job => (
               <div key={job.id} className="grid grid-cols-[110px_1fr_130px_140px_110px_110px] gap-2">
-                <div className="table-row rounded-hh-lg px-2 text-xs">{job.job_id}</div>
+                <div
+                  className="table-row rounded-hh-lg px-2 text-xs text-hh-green underline cursor-pointer hover:opacity-80"
+                  onClick={() => navigate(`/admin/jobs/${job.id}`)}
+                >
+                  {job.job_id}
+                </div>
                 <div className="table-row rounded-hh-lg px-2 text-xs">{job.job_name}</div>
                 <div className="table-row rounded-hh-lg px-2 text-xs">
                   {job.job_specifications?.job_type_name || '—'}

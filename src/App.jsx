@@ -25,6 +25,8 @@ import ProfilePage     from './pages/shared/ProfilePage'
 import Notifications   from './pages/shared/Notifications'
 import JobRemark       from './pages/shared/JobRemark'
 import ChangePassword  from './pages/shared/ChangePassword'
+import ForgotPassword  from './pages/shared/ForgotPassword'
+import ResetPassword   from './pages/shared/ResetPassword'
 
 // ── Helpee ──────────────────────────────────────────────────────────────
 import HelpeeHome from './pages/helpee/HelpeeHome'
@@ -110,6 +112,8 @@ export default function App() {
             element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
           <Route path="/change-password"
             element={<ProtectedRoute><ChangePassword /></ProtectedRoute>} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/reset-password"  element={<ResetPassword />} />
           <Route path="/helpee/jobs/:id/remark"
             element={<ProtectedRoute><JobRemark /></ProtectedRoute>} />
 

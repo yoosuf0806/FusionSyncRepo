@@ -213,29 +213,33 @@ export async function saveInvoice(jobId, invoiceData) {
     .eq('job_id', jobId)
     .maybeSingle()
 
+  const payload = {
+    invoice_amount: invoiceData.invoice_amount,
+    invoice_currency: invoiceData.invoice_currency || 'AUD',
+    invoice_date: invoiceData.invoice_date || null,
+    invoice_notes: invoiceData.invoice_notes || null,
+    invoice_status: invoiceData.invoice_status || 'draft',
+    ...(invoiceData.attachment_url !== undefined && { attachment_url: invoiceData.attachment_url }),
+  }
+
   if (existing.data) {
-    const { error } = await supabase
-      .from('invoices')
-      .update({
-        invoice_amount: invoiceData.invoice_amount,
-        invoice_currency: invoiceData.invoice_currency || 'AUD',
-        invoice_date: invoiceData.invoice_date || null,
-        invoice_notes: invoiceData.invoice_notes || null,
-        invoice_status: invoiceData.invoice_status || 'draft',
-      })
-      .eq('job_id', jobId)
+    const { error } = await supabase.from('invoices').update(payload).eq('job_id', jobId)
     if (error) throw error
   } else {
-    const { error } = await supabase.from('invoices').insert({
-      job_id: jobId,
-      invoice_amount: invoiceData.invoice_amount,
-      invoice_currency: invoiceData.invoice_currency || 'AUD',
-      invoice_date: invoiceData.invoice_date || null,
-      invoice_notes: invoiceData.invoice_notes || null,
-      invoice_status: invoiceData.invoice_status || 'draft',
-    })
+    const { error } = await supabase.from('invoices').insert({ job_id: jobId, ...payload })
     if (error) throw error
   }
+}
+
+export async function uploadInvoiceAttachment(jobId, file) {
+  const ext = file.name.split('.').pop()
+  const path = `${jobId}/${Date.now()}.${ext}`
+  const { error: uploadErr } = await supabase.storage
+    .from('invoice-attachments')
+    .upload(path, file, { upsert: true })
+  if (uploadErr) throw uploadErr
+  const { data } = supabase.storage.from('invoice-attachments').getPublicUrl(path)
+  return data.publicUrl
 }
 
 export async function saveRemark(jobId, helpeeId, rating, remark) {
@@ -254,6 +258,15 @@ export async function upsertAssociatedUser(jobId, userId, roleInJob) {
   const { error } = await supabase
     .from('job_associated_users')
     .upsert({ job_id: jobId, user_id: userId, role: roleInJob }, { onConflict: 'job_id,user_id' })
+  if (error) throw error
+}
+
+export async function removeAssociatedUser(jobId, userId) {
+  const { error } = await supabase
+    .from('job_associated_users')
+    .delete()
+    .eq('job_id', jobId)
+    .eq('user_id', userId)
   if (error) throw error
 }
 

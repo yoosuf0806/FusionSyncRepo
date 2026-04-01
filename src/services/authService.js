@@ -1,10 +1,11 @@
 import { supabase } from '../supabase/client'
 
-function normalizeLoginEmail(identifier) {
+// Converts a plain username to the internal login email format.
+// Spaces become dots; special chars are stripped.
+export function normalizeLoginEmail(identifier) {
   const value = identifier.trim()
   if (value.includes('@')) return value.toLowerCase()
-  // Allow username-style login (e.g. "Admin") by mapping to a controlled domain.
-  return `${value.toLowerCase()}@helpinghands.local`
+  return `${value.toLowerCase().replace(/\s+/g, '.')}@helpinghands.local`
 }
 
 export async function loginUser(identifier, password) {
@@ -23,6 +24,14 @@ export async function changeCurrentUserPassword(newPassword) {
   const { data, error } = await supabase.auth.updateUser({ password: newPassword })
   if (error) throw error
   return data
+}
+
+export async function sendPasswordResetEmail(identifier) {
+  const email = normalizeLoginEmail(identifier)
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: `${window.location.origin}/reset-password`,
+  })
+  if (error) throw error
 }
 
 export async function getUserProfile(authUserId) {
