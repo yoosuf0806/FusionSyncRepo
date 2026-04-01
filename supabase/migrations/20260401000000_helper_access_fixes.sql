@@ -33,50 +33,41 @@ CREATE POLICY "invoice_attachments_delete"
   ON storage.objects FOR DELETE TO authenticated
   USING (bucket_id = 'invoice-attachments');
 
--- 4. Allow helpers to read ALL associated users for jobs they are assigned to
---    (Required for workflow display to show "Supervisor Assigned" as green)
-DROP POLICY IF EXISTS "helpers_view_all_job_associated_users" ON job_associated_users;
+-- 4–6. Helper access WITHOUT querying job_associated_users inside RLS (avoids infinite recursion)
+--    See 20260402000000_fix_jau_rls_recursion.sql for the same logic in a standalone patch.
+
+DROP POLICY IF EXISTS "helpers_view_all_job_associated_users" ON public.job_associated_users;
+DROP POLICY IF EXISTS "helpers_view_job_question_answers" ON public.job_question_answers;
+DROP POLICY IF EXISTS "helpers_update_job_status" ON public.jobs;
+
+CREATE OR REPLACE FUNCTION public.is_helper_for_job(p_job_id uuid)
+RETURNS boolean
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+STABLE
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.job_associated_users jau
+    WHERE jau.job_id = p_job_id
+      AND jau.user_id = public.auth_user_id()
+      AND jau.role = 'helper'
+  );
+$$;
+
+REVOKE ALL ON FUNCTION public.is_helper_for_job(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.is_helper_for_job(uuid) TO authenticated;
+
 CREATE POLICY "helpers_view_all_job_associated_users"
-  ON job_associated_users FOR SELECT TO authenticated
-  USING (
-    EXISTS (
-      SELECT 1
-      FROM job_associated_users my_row
-      JOIN users u ON u.auth_user_id = auth.uid()
-      WHERE my_row.job_id = job_associated_users.job_id
-        AND my_row.user_id = u.id
-        AND my_row.role = 'helper'
-    )
-  );
+  ON public.job_associated_users FOR SELECT TO authenticated
+  USING (public.is_helper_for_job(job_id));
 
--- 5. Allow helpers to read job question answers for their assigned jobs
---    (Required for questionnaire answers to show in Helper view)
-DROP POLICY IF EXISTS "helpers_view_job_question_answers" ON job_question_answers;
 CREATE POLICY "helpers_view_job_question_answers"
-  ON job_question_answers FOR SELECT TO authenticated
-  USING (
-    EXISTS (
-      SELECT 1
-      FROM job_associated_users jau
-      JOIN users u ON u.auth_user_id = auth.uid()
-      WHERE jau.job_id = job_question_answers.job_id
-        AND jau.user_id = u.id
-        AND jau.role = 'helper'
-    )
-  );
+  ON public.job_question_answers FOR SELECT TO authenticated
+  USING (public.auth_user_type() = 'helper' AND public.is_helper_for_job(job_id));
 
--- 6. Allow helpers to update job status (job_started and job_finished only)
---    The application code limits which statuses helpers can set.
-DROP POLICY IF EXISTS "helpers_update_job_status" ON jobs;
 CREATE POLICY "helpers_update_job_status"
-  ON jobs FOR UPDATE TO authenticated
-  USING (
-    EXISTS (
-      SELECT 1
-      FROM job_associated_users jau
-      JOIN users u ON u.auth_user_id = auth.uid()
-      WHERE jau.job_id = jobs.id
-        AND jau.user_id = u.id
-        AND jau.role = 'helper'
-    )
-  );
+  ON public.jobs FOR UPDATE TO authenticated
+  USING (public.auth_user_type() = 'helper' AND public.is_helper_for_job(id))
+  WITH CHECK (public.auth_user_type() = 'helper' AND public.is_helper_for_job(id));
