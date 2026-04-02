@@ -71,3 +71,4 @@ CREATE POLICY "helpers_update_job_status"
   ON public.jobs FOR UPDATE TO authenticated
   USING (public.auth_user_type() = 'helper' AND public.is_helper_for_job(id))
   WITH CHECK (public.auth_user_type() = 'helper' AND public.is_helper_for_job(id));
+v

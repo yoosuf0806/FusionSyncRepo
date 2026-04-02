@@ -1,5 +1,35 @@
 import { supabase } from '../supabase/client'
 
+/** Map DB invoice row (amount/currency/notes/invoice_attachment_url) to UI fields */
+export function normalizeInvoiceRow(row) {
+  if (!row) return null
+  return {
+    ...row,
+    invoice_amount: row.invoice_amount ?? row.amount ?? '',
+    invoice_currency: row.invoice_currency ?? row.currency ?? 'AUD',
+    invoice_notes: row.invoice_notes ?? row.notes ?? '',
+    invoice_date: row.invoice_date ?? '',
+    invoice_status: row.invoice_status ?? 'draft',
+    attachment_url: row.attachment_url ?? row.invoice_attachment_url ?? '',
+  }
+}
+
+function invoiceToDbPayload(invoiceData) {
+  const raw = invoiceData.invoice_amount
+  const n = raw === '' || raw == null ? NaN : Number(raw)
+  const amount = Number.isFinite(n) ? n : null
+  return {
+    amount,
+    currency: invoiceData.invoice_currency || 'AUD',
+    invoice_date: invoiceData.invoice_date || null,
+    notes: invoiceData.invoice_notes ?? null,
+    invoice_status: invoiceData.invoice_status || 'draft',
+    ...(invoiceData.attachment_url !== undefined && invoiceData.attachment_url !== ''
+      ? { invoice_attachment_url: invoiceData.attachment_url }
+      : {}),
+  }
+}
+
 export async function getJobs({ search = '', statusFilter = '' } = {}) {
   // Removed users join — not needed for list view, and FK hint caused 400 errors
   let query = supabase
@@ -28,30 +58,46 @@ export async function getJobs({ search = '', statusFilter = '' } = {}) {
   return data
 }
 
+const JOB_LIST_SELECT = `
+  id, job_id, job_name, job_category, status, job_from_date, job_to_date,
+  created_at, job_specifications(job_type_name)
+`
+
+/** Two-step fetch avoids PostgREST embed + RLS edge cases for helper/helpee lists */
 export async function getJobsForUser(userId) {
-  const { data, error } = await supabase
+  const { data: rows, error } = await supabase
     .from('job_associated_users')
-    .select(`
-      jobs(id, job_id, job_name, job_category, status, job_from_date, job_to_date,
-           job_specifications(job_type_name))
-    `)
+    .select('job_id')
     .eq('user_id', userId)
     .eq('role', 'helper')
   if (error) throw error
-  return (data || []).map(r => r.jobs).filter(Boolean)
+  const jobIds = [...new Set((rows || []).map(r => r.job_id).filter(Boolean))]
+  if (jobIds.length === 0) return []
+  const { data: jobs, error: jErr } = await supabase
+    .from('jobs')
+    .select(JOB_LIST_SELECT)
+    .in('id', jobIds)
+    .order('created_at', { ascending: false })
+  if (jErr) throw jErr
+  return jobs || []
 }
 
 export async function getJobsForHelpee(userId) {
-  const { data, error } = await supabase
+  const { data: rows, error } = await supabase
     .from('job_associated_users')
-    .select(`
-      jobs(id, job_id, job_name, job_category, status, job_from_date, job_to_date,
-           job_specifications(job_type_name))
-    `)
+    .select('job_id')
     .eq('user_id', userId)
     .eq('role', 'helpee')
   if (error) throw error
-  return (data || []).map(r => r.jobs).filter(Boolean)
+  const jobIds = [...new Set((rows || []).map(r => r.job_id).filter(Boolean))]
+  if (jobIds.length === 0) return []
+  const { data: jobs, error: jErr } = await supabase
+    .from('jobs')
+    .select(JOB_LIST_SELECT)
+    .in('id', jobIds)
+    .order('created_at', { ascending: false })
+  if (jErr) throw jErr
+  return jobs || []
 }
 
 export async function getJobById(id) {
@@ -83,7 +129,7 @@ export async function getJobById(id) {
     associated_users: assocUsers || [],
     attendance: attendance || [],
     status_history: statusHistory || [],
-    invoice: invoice || null,
+    invoice: normalizeInvoiceRow(invoice),
     remark: remark || null,
   }
 }
@@ -97,6 +143,7 @@ export async function createJob(jobData, answers = [], associatedUsers = {}) {
       job_category: jobData.job_category,
       job_type_id: jobData.job_type_id || null,
       job_description: jobData.job_description || null,
+      job_notes: jobData.job_notes || null,
       // One-time fields
       job_date: !isFrequent ? (jobData.job_date || null) : null,
       // Frequent fields
@@ -157,6 +204,7 @@ export async function updateJob(id, jobData, answers = []) {
     .update({
       job_name: jobData.job_name,
       job_description: jobData.job_description || null,
+      job_notes: jobData.job_notes ?? null,
       job_date: !isFrequent ? (jobData.job_date || null) : null,
       job_from_date: isFrequent ? (jobData.job_from_date || null) : null,
       job_to_date: isFrequent ? (jobData.job_to_date || null) : null,
@@ -213,14 +261,7 @@ export async function saveInvoice(jobId, invoiceData) {
     .eq('job_id', jobId)
     .maybeSingle()
 
-  const payload = {
-    invoice_amount: invoiceData.invoice_amount,
-    invoice_currency: invoiceData.invoice_currency || 'AUD',
-    invoice_date: invoiceData.invoice_date || null,
-    invoice_notes: invoiceData.invoice_notes || null,
-    invoice_status: invoiceData.invoice_status || 'draft',
-    ...(invoiceData.attachment_url !== undefined && { attachment_url: invoiceData.attachment_url }),
-  }
+  const payload = invoiceToDbPayload(invoiceData)
 
   if (existing.data) {
     const { error } = await supabase.from('invoices').update(payload).eq('job_id', jobId)
@@ -286,6 +327,7 @@ export async function upsertAttendanceRow(jobId, rowData) {
     attendance_date: rowData.attendance_date,
     check_in_time: rowData.check_in_time || null,
     check_out_time: rowData.check_out_time || null,
+    remark: rowData.remark ?? null,
     att_status: rowData.att_status || 'pending_approval',
     submitted_at: rowData.submitted_at || null,
     resubmitted_at: rowData.resubmitted_at || null,

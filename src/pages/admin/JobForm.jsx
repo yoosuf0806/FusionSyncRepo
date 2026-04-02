@@ -226,6 +226,7 @@ export default function JobForm() {
 
   const [form, setForm] = useState({
     job_name: '', job_description: '', job_type_id: '',
+    job_notes: '',
     // one-time fields
     job_date: '', job_start_time: '',
     // frequent fields
@@ -234,6 +235,7 @@ export default function JobForm() {
     job_location: '', job_requester_id: null, department_id: null,
     pricing_structure: 'daily',
   })
+  const [loadedJobTypeName, setLoadedJobTypeName] = useState('')
   const [jobId, setJobId] = useState('Auto-generated')
   const [status, setStatus] = useState('request_raised')
   const [dbJobId, setDbJobId] = useState(null)
@@ -281,7 +283,11 @@ export default function JobForm() {
     try {
       const qs = await getQuestionsForSpec(specId)
       setQuestions(qs)
-      setAnswers(qs.map(q => ({ question_id: q.id, answer_text: '' })))
+      // Preserve answers already loaded from the job (edit / helpee / helper view)
+      setAnswers(prev => qs.map(q => {
+        const hit = prev.find(a => a.question_id === q.id)
+        return { question_id: q.id, answer_text: hit?.answer_text ?? '' }
+      }))
       const spec = specs.find(s => s.id === specId)
       setSelectedSpec(spec || null)
     } catch { setQuestions([]) }
@@ -292,12 +298,19 @@ export default function JobForm() {
   useEffect(() => {
     if (!isEdit) return
     getJobById(id).then(job => {
-      const jc = job.job_category === JOB_CATEGORIES.FREQUENT ? JOB_CATEGORIES.FREQUENT : JOB_CATEGORIES.ONETIME
+      const catRaw = job.job_category ? String(job.job_category).toLowerCase() : ''
+      const jc = catRaw === 'frequent' ? JOB_CATEGORIES.FREQUENT : JOB_CATEGORIES.ONETIME
       setCategory(jc)
+      const spec = job.job_specifications
+      const typeName = spec && typeof spec === 'object' && !Array.isArray(spec)
+        ? spec.job_type_name
+        : (Array.isArray(spec) ? spec[0]?.job_type_name : '')
+      setLoadedJobTypeName(typeName || '')
       setForm({
         job_name: job.job_name || '',
         job_description: job.job_description || '',
         job_type_id: job.job_type_id || '',
+        job_notes: job.job_notes || '',
         job_date: job.job_date || '',
         job_start_time: job.job_start_time || '',
         job_from_date: job.job_from_date || '',
@@ -410,6 +423,7 @@ export default function JobForm() {
         attendance_date: row.attendance_date,
         check_in_time: row.check_in_time,
         check_out_time: row.check_out_time,
+        remark: row.remark || null,
         att_status: 'pending_approval',
         submitted_at: new Date().toISOString(),
         resubmitted_at: row.att_status === 'rejected' ? new Date().toISOString() : null,
@@ -435,7 +449,7 @@ export default function JobForm() {
   }
 
   const isFrequent = category === JOB_CATEGORIES.FREQUENT
-  const isReadOnly = isHelpee || (isHelper && !isEdit)
+  const isJobFieldsReadOnly = isHelpee || isHelper
   const jobTitle = isFrequent ? 'Job (Frequent Job)' : 'Job (One-Time Job)'
   const inputClass = 'form-cell flex-1 w-full outline-none text-sm'
   const isHourly = form.pricing_structure === 'hourly'
@@ -469,36 +483,56 @@ export default function JobForm() {
                 <div className="form-cell flex-1 text-sm text-hh-placeholder">{jobId}</div>
               </FormRow>
               <FormRow label="Job Type" labelWidth="w-40">
-                <select className={inputClass} value={form.job_type_id}
-                  onChange={e => setField('job_type_id', e.target.value)} disabled={isReadOnly}>
-                  <option value="">-- Select Job Type --</option>
-                  {specs.map(s => <option key={s.id} value={s.id}>{s.job_type_name}</option>)}
-                </select>
+                {isJobFieldsReadOnly ? (
+                  <div className="form-cell flex-1 text-sm">
+                    {loadedJobTypeName || selectedSpec?.job_type_name || specs.find(s => s.id === form.job_type_id)?.job_type_name || '—'}
+                  </div>
+                ) : (
+                  <select className={inputClass} value={form.job_type_id}
+                    onChange={e => setField('job_type_id', e.target.value)}>
+                    <option value="">-- Select Job Type --</option>
+                    {specs.map(s => <option key={s.id} value={s.id}>{s.job_type_name}</option>)}
+                  </select>
+                )}
               </FormRow>
               <FormRow label="Job Name" labelWidth="w-40">
                 <input className={inputClass} value={form.job_name}
-                  onChange={e => setField('job_name', e.target.value)} placeholder="Job Name" readOnly={isReadOnly} />
+                  onChange={e => setField('job_name', e.target.value)} placeholder="Job Name" readOnly={isJobFieldsReadOnly} />
               </FormRow>
               <FormRow label="Job Description" labelWidth="w-40">
                 <textarea className="form-cell flex-1 w-full outline-none text-sm h-16 resize-none py-2"
                   value={form.job_description} onChange={e => setField('job_description', e.target.value)}
-                  placeholder="Description" readOnly={isReadOnly} />
+                  placeholder="Description" readOnly={isJobFieldsReadOnly} />
               </FormRow>
+
+              {/* Frequent: show date range in first column so dates are always visible */}
+              {isFrequent && (
+                <>
+                  <FormRow label="Start Date" labelWidth="w-40">
+                    <input type="date" className={inputClass} value={form.job_from_date}
+                      onChange={e => setField('job_from_date', e.target.value)} readOnly={isJobFieldsReadOnly} />
+                  </FormRow>
+                  <FormRow label="End Date" labelWidth="w-40">
+                    <input type="date" className={inputClass} value={form.job_to_date}
+                      onChange={e => setField('job_to_date', e.target.value)} readOnly={isJobFieldsReadOnly} />
+                  </FormRow>
+                </>
+              )}
 
               {/* ── ONE-TIME: single date + time ── */}
               {!isFrequent && (
                 <>
                   <FormRow label="Job Date" labelWidth="w-40">
                     <input type="date" className={inputClass} value={form.job_date}
-                      onChange={e => setField('job_date', e.target.value)} readOnly={isReadOnly} />
+                      onChange={e => setField('job_date', e.target.value)} readOnly={isJobFieldsReadOnly} />
                   </FormRow>
                   <FormRow label="Job Time" labelWidth="w-40">
                     <input type="time" className={inputClass} value={form.job_start_time}
-                      onChange={e => setField('job_start_time', e.target.value)} readOnly={isReadOnly} />
+                      onChange={e => setField('job_start_time', e.target.value)} readOnly={isJobFieldsReadOnly} />
                   </FormRow>
                   <FormRow label="Job Location" labelWidth="w-40">
                     <input className={inputClass} value={form.job_location}
-                      onChange={e => setField('job_location', e.target.value)} placeholder="Location" readOnly={isReadOnly} />
+                      onChange={e => setField('job_location', e.target.value)} placeholder="Location" readOnly={isJobFieldsReadOnly} />
                   </FormRow>
                   <FormRow label="Job Requester" labelWidth="w-40">
                     <div className="form-cell flex-1 text-sm text-hh-placeholder">{dbUser?.user_name || 'Current User'}</div>
@@ -510,25 +544,17 @@ export default function JobForm() {
             {/* ── FREQUENT: date range + times + pricing ── */}
             {isFrequent && (
               <div className="space-y-2">
-                <FormRow label="Start Date" labelWidth="w-40">
-                  <input type="date" className={inputClass} value={form.job_from_date}
-                    onChange={e => setField('job_from_date', e.target.value)} readOnly={isReadOnly} />
-                </FormRow>
-                <FormRow label="End Date" labelWidth="w-40">
-                  <input type="date" className={inputClass} value={form.job_to_date}
-                    onChange={e => setField('job_to_date', e.target.value)} readOnly={isReadOnly} />
-                </FormRow>
                 <FormRow label="Job Start Time" labelWidth="w-40">
                   <input type="time" className={inputClass} value={form.job_start_time}
-                    onChange={e => setField('job_start_time', e.target.value)} readOnly={isReadOnly} />
+                    onChange={e => setField('job_start_time', e.target.value)} readOnly={isJobFieldsReadOnly} />
                 </FormRow>
                 <FormRow label="Job End Time" labelWidth="w-40">
                   <input type="time" className={inputClass} value={form.job_end_time}
-                    onChange={e => setField('job_end_time', e.target.value)} readOnly={isReadOnly} />
+                    onChange={e => setField('job_end_time', e.target.value)} readOnly={isJobFieldsReadOnly} />
                 </FormRow>
                 <FormRow label="Job Location" labelWidth="w-40">
                   <input className={inputClass} value={form.job_location}
-                    onChange={e => setField('job_location', e.target.value)} placeholder="Location" readOnly={isReadOnly} />
+                    onChange={e => setField('job_location', e.target.value)} placeholder="Location" readOnly={isJobFieldsReadOnly} />
                 </FormRow>
                 <FormRow label="Job Requester" labelWidth="w-40">
                   <div className="form-cell flex-1 text-sm text-hh-placeholder">{dbUser?.user_name || 'Current User'}</div>
@@ -542,7 +568,7 @@ export default function JobForm() {
                         <button
                           key={opt.val}
                           type="button"
-                          onClick={() => !isReadOnly && setField('pricing_structure', opt.val)}
+                          onClick={() => !isJobFieldsReadOnly && setField('pricing_structure', opt.val)}
                           className={`px-4 py-1.5 rounded-hh text-sm font-medium border-2 transition-colors
                             ${form.pricing_structure === opt.val
                               ? 'bg-hh-green text-white border-hh-green'
@@ -557,6 +583,14 @@ export default function JobForm() {
               </div>
             )}
           </div>
+
+          <FormRow label="Remark / notes" labelWidth="w-40">
+            <textarea className="form-cell flex-1 w-full outline-none text-sm h-20 resize-none py-2 mt-1"
+              value={form.job_notes}
+              onChange={e => setField('job_notes', e.target.value)}
+              placeholder="Optional notes visible to everyone on this job (e.g. access instructions)"
+              readOnly={!canManage} />
+          </FormRow>
         </section>
 
         {/* ── JOB SPECIFIC QUESTIONS ────────────────── */}
@@ -567,7 +601,7 @@ export default function JobForm() {
               {questions.map((q, i) => (
                 <FormRow key={q.id} label={q.question_text} labelWidth="w-48">
                   <input className={inputClass} value={answers[i]?.answer_text || ''}
-                    onChange={e => setAnswer(q.id, e.target.value)} placeholder="Enter Answer" readOnly={isReadOnly} />
+                    onChange={e => setAnswer(q.id, e.target.value)} placeholder="Enter Answer" readOnly={isJobFieldsReadOnly} />
                 </FormRow>
               ))}
             </div>
@@ -710,10 +744,10 @@ export default function JobForm() {
             ) : (
               <>
                 <div className="overflow-x-auto">
-                  <table className="w-full min-w-[900px] text-xs border-collapse">
+                  <table className="w-full min-w-[1040px] text-xs border-collapse">
                     <thead>
                       <tr>
-                        {['Date', 'Sched. Start', 'Sched. End', 'Check In', 'Check Out', 'Hrs',
+                        {['Date', 'Sched. Start', 'Sched. End', 'Check In', 'Check Out', 'Remark', 'Hrs',
                           isHourly ? 'Rate/Hr' : 'Rate/Day',
                           isHourly ? 'Amount' : '',
                           'Status', 'Action'
@@ -750,6 +784,14 @@ export default function JobForm() {
                                     value={row.check_out_time || ''}
                                     onChange={e => setAttRow(row.id, 'check_out_time', e.target.value)} />
                                 : <span>{row.check_out_time || '—'}</span>}
+                            </td>
+                            <td className="px-2 py-1.5 max-w-[140px]">
+                              {canEdit && !isApproved
+                                ? <input type="text" className="form-cell outline-none text-xs w-full min-w-0"
+                                    value={row.remark || ''}
+                                    placeholder="Note"
+                                    onChange={e => setAttRow(row.id, 'remark', e.target.value)} />
+                                : <span className="break-words">{row.remark || '—'}</span>}
                             </td>
                             <td className="px-2 py-1.5">{row.total_hours != null ? Number(row.total_hours).toFixed(2) : '—'}</td>
                             <td className="px-2 py-1.5">
