@@ -274,6 +274,16 @@ export default function JobForm() {
     if (!isEdit) setForm(prev => ({ ...prev, job_requester_id: authUser.id }))
   }, [authUser, isEdit])
 
+  // Helpee creating a job: they are always the helpee on the request
+  useEffect(() => {
+    if (!authUser || isEdit || !isHelpee) return
+    setHelpee(authUser)
+    setAssociatedUsers(prev => [
+      ...prev.filter(a => a.role !== 'helpee'),
+      { role: 'helpee', users: authUser },
+    ])
+  }, [authUser, isEdit, isHelpee])
+
   useEffect(() => {
     getJobSpecs().then(setSpecs).catch(() => {})
   }, [])
@@ -752,11 +762,16 @@ export default function JobForm() {
                           isHourly ? 'Amount' : '',
                           'Status', 'Action'
                         ].filter(Boolean).map(h => (
-                          <th key={h} className="table-header rounded-none px-2 py-2 text-left font-medium">{h}</th>
+                          <th
+                            key={h}
+                            className="border-b-2 border-hh-green/40 bg-hh-mint/60 px-2 py-2.5 text-left text-xs font-semibold text-hh-text whitespace-nowrap align-middle"
+                          >
+                            {h}
+                          </th>
                         ))}
                       </tr>
                     </thead>
-                    <tbody className="space-y-1">
+                    <tbody>
                       {attSlice.map(row => {
                         const isRejected = row.att_status === 'rejected'
                         const isPending  = row.att_status === 'pending_approval' || row.att_status === 'resubmitted'

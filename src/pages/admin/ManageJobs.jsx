@@ -107,7 +107,7 @@ export default function ManageJobs() {
           </div>
         )}
 
-        {canManage && (
+        {(canManage || isHelpee) && (
           <button onClick={() => setShowTypeModal(true)} className="btn-add" title="Add Job">
             ⊕
           </button>

@@ -62,14 +62,32 @@ const JOB_LIST_SELECT = `
   id, job_id, job_name, job_category, status, job_from_date, job_to_date,
   created_at, job_specifications(job_type_name)
 `
+const JOB_LIST_MINIMAL = `
+  id, job_id, job_name, job_category, status, job_from_date, job_to_date,
+  created_at, job_type_id
+`
 
-/** Two-step fetch avoids PostgREST embed + RLS edge cases for helper/helpee lists */
-export async function getJobsForUser(userId) {
+/** DB columns for invoices — never use invoice_* names here (schema uses amount, currency, notes). */
+const INVOICE_SELECT = [
+  'id',
+  'job_id',
+  'amount',
+  'currency',
+  'notes',
+  'invoice_date',
+  'invoice_status',
+  'invoice_number',
+  'invoice_attachment_url',
+  'created_at',
+  'updated_at',
+].join(', ')
+
+async function fetchJobsByParticipantRole(userId, role) {
   const { data: rows, error } = await supabase
     .from('job_associated_users')
     .select('job_id')
     .eq('user_id', userId)
-    .eq('role', 'helper')
+    .eq('role', role)
   if (error) throw error
   const jobIds = [...new Set((rows || []).map(r => r.job_id).filter(Boolean))]
   if (jobIds.length === 0) return []
@@ -78,26 +96,25 @@ export async function getJobsForUser(userId) {
     .select(JOB_LIST_SELECT)
     .in('id', jobIds)
     .order('created_at', { ascending: false })
-  if (jErr) throw jErr
+  if (jErr) {
+    const { data: minimal, error: mErr } = await supabase
+      .from('jobs')
+      .select(JOB_LIST_MINIMAL)
+      .in('id', jobIds)
+      .order('created_at', { ascending: false })
+    if (mErr) throw mErr
+    return (minimal || []).map(j => ({ ...j, job_specifications: null }))
+  }
   return jobs || []
 }
 
+/** Two-step fetch avoids PostgREST embed + RLS edge cases for helper/helpee lists */
+export async function getJobsForUser(userId) {
+  return fetchJobsByParticipantRole(userId, 'helper')
+}
+
 export async function getJobsForHelpee(userId) {
-  const { data: rows, error } = await supabase
-    .from('job_associated_users')
-    .select('job_id')
-    .eq('user_id', userId)
-    .eq('role', 'helpee')
-  if (error) throw error
-  const jobIds = [...new Set((rows || []).map(r => r.job_id).filter(Boolean))]
-  if (jobIds.length === 0) return []
-  const { data: jobs, error: jErr } = await supabase
-    .from('jobs')
-    .select(JOB_LIST_SELECT)
-    .in('id', jobIds)
-    .order('created_at', { ascending: false })
-  if (jErr) throw jErr
-  return jobs || []
+  return fetchJobsByParticipantRole(userId, 'helpee')
 }
 
 export async function getJobById(id) {
@@ -119,7 +136,7 @@ export async function getJobById(id) {
     supabase.from('job_associated_users').select('*, users(id, user_id, user_name, user_type)').eq('job_id', id),
     supabase.from('job_attendance').select('*').eq('job_id', id).order('attendance_date'),
     supabase.from('job_status_history').select('*').eq('job_id', id).order('changed_at'),
-    supabase.from('invoices').select('*').eq('job_id', id).maybeSingle(),
+    supabase.from('invoices').select(INVOICE_SELECT).eq('job_id', id).maybeSingle(),
     supabase.from('job_remarks').select('*').eq('job_id', id).maybeSingle(),
   ])
 
