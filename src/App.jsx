@@ -35,8 +35,6 @@ const ALL_ROLES = ['admin', 'supervisor', 'helper', 'helpee']
 const MANAGE_ROLES = ['admin', 'supervisor']
 const ADMIN_ONLY = ['admin']
 const JOB_ROLES = ['admin', 'supervisor', 'helper', 'helpee']
-/** Helpees can create jobs (request); admins/supervisors manage all jobs */
-const JOB_CREATE_ROLES = ['admin', 'supervisor', 'helpee']
 
 export default function App() {
   return (
@@ -74,10 +72,19 @@ export default function App() {
           {/* ── MANAGE JOBS ──────────────────────────────────────────────── */}
           <Route path="/admin/manage-jobs"
             element={<RoleRoute allowedRoles={JOB_ROLES}><ManageJobs /></RoleRoute>} />
+
+          {/* Role-scoped job URLs (helpee/helper see /helpee/... or /helper/... in the bar) */}
+          <Route path="/helpee/jobs/new"
+            element={<RoleRoute allowedRoles={['helpee']}><JobForm /></RoleRoute>} />
+          <Route path="/helpee/jobs/:id"
+            element={<RoleRoute allowedRoles={['helpee']}><JobForm /></RoleRoute>} />
+          <Route path="/helper/jobs/:id"
+            element={<RoleRoute allowedRoles={['helper']}><JobForm /></RoleRoute>} />
+
           <Route path="/admin/jobs/new"
-            element={<RoleRoute allowedRoles={JOB_CREATE_ROLES}><JobForm /></RoleRoute>} />
+            element={<RoleRoute allowedRoles={MANAGE_ROLES}><JobForm /></RoleRoute>} />
           <Route path="/admin/jobs/new/frequent"
-            element={<RoleRoute allowedRoles={JOB_CREATE_ROLES}><JobForm /></RoleRoute>} />
+            element={<RoleRoute allowedRoles={MANAGE_ROLES}><JobForm /></RoleRoute>} />
           <Route path="/admin/jobs/:id"
             element={<RoleRoute allowedRoles={JOB_ROLES}><JobForm /></RoleRoute>} />
 

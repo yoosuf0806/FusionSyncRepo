@@ -2,6 +2,7 @@
 import { useNavigate } from 'react-router-dom'
 import MainLayout from '../../layouts/MainLayout'
 import { useAuth } from '../../contexts/AuthContext'
+import { jobsHubPath } from '../../constants/jobPaths'
 
 const NAV_CARDS = [
   {
@@ -13,6 +14,7 @@ const NAV_CARDS = [
     label: ['Manage', 'Jobs'],
     path: '/admin/manage-jobs',
     roles: ['admin', 'supervisor', 'helper', 'helpee'],
+    pathForRole: (r) => jobsHubPath(r),
   },
   {
     label: ['Manage', 'Job', 'Specifications'],
@@ -39,7 +41,7 @@ export default function AdminHome() {
           {visibleCards.map((card, i) => (
             <button
               key={i}
-              onClick={() => navigate(card.path)}
+              onClick={() => navigate(card.pathForRole ? card.pathForRole(role) : card.path)}
               className="
                 bg-hh-green-med text-white rounded-hh-xl shadow-hh
                 w-36 h-32 flex flex-col items-center justify-center gap-1

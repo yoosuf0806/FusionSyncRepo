@@ -44,20 +44,30 @@ export default function MainLayout({ children, title }) {
   const [showUserMenu, setShowUserMenu] = useState(false)
   const navigate = useNavigate()
   const location = useLocation()
-  const { role, isAdmin, isSupervisor, isHelper, signOut, user: authUser } = useAuth()
+  const { isAdmin, isSupervisor, isHelper, isHelpee, signOut, user: authUser } = useAuth()
 
   const homePath = isAdmin || isSupervisor ? '/admin/home'
     : isHelper ? '/helper/home'
     : '/helpee/home'
 
+  const manageJobsPath = isHelpee ? '/helpee/home' : '/admin/manage-jobs'
+
   const navItems = [
     { label: 'Manage Users',             path: '/admin/manage-users', show: isAdmin || isSupervisor },
-    { label: 'Manage Jobs',              path: '/admin/manage-jobs',  show: true },
+    { label: 'Manage Jobs',              path: manageJobsPath,        show: true },
     { label: 'Manage Job Specifications',path: '/admin/job-specs',    show: isAdmin || isSupervisor },
     { label: 'Manage Setup',             path: '/admin/setup',        show: isAdmin },
   ].filter(item => item.show)
 
-  const isActive = (path) => location.pathname.startsWith(path)
+  const navItemActive = (item) => {
+    if (item.label === 'Manage Jobs') {
+      if (isHelpee) {
+        return location.pathname === '/helpee/home' || location.pathname.startsWith('/helpee/jobs')
+      }
+      return location.pathname.startsWith('/admin/manage-jobs') || location.pathname.startsWith('/admin/jobs')
+    }
+    return location.pathname.startsWith(item.path)
+  }
 
   // Load unread notification count — authUser from context is already the DB user record
   useEffect(() => {
@@ -99,11 +109,11 @@ export default function MainLayout({ children, title }) {
           <nav className="flex flex-col gap-3 px-3 mt-2 flex-1">
             {navItems.map(item => (
               <button
-                key={item.path}
+                key={item.label}
                 onClick={() => { navigate(item.path); setSidebarOpen(false) }}
                 className={`
                   w-full px-3 py-2.5 rounded-pill text-sm font-medium text-center transition-colors
-                  ${isActive(item.path)
+                  ${navItemActive(item)
                     ? 'bg-hh-sidebar text-white border border-white/30'
                     : 'bg-white text-hh-text hover:bg-gray-100'}
                 `}

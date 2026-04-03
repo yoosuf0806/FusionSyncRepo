@@ -7,10 +7,11 @@ import LoadingSpinner from '../../components/LoadingSpinner'
 import EmptyState from '../../components/EmptyState'
 import ErrorBanner from '../../components/ErrorBanner'
 import { JOB_STATUS_LABELS } from '../../constants/jobStatuses'
+import { jobDetailPath, jobNewPath } from '../../constants/jobPaths'
 
 export default function HelpeeHome() {
   const navigate = useNavigate()
-  const { user: authUser } = useAuth()
+  const { user: authUser, role } = useAuth()
   const [jobs, setJobs] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -57,7 +58,7 @@ export default function HelpeeHome() {
             {jobs.map(job => (
               <button
                 key={job.id}
-                onClick={() => navigate(`/admin/jobs/${job.id}`)}
+                onClick={() => navigate(jobDetailPath(role, job.id))}
                 className="w-full grid grid-cols-[110px_1fr_130px_130px_120px] gap-2 text-left hover:opacity-90 transition-opacity"
               >
                 <div className="table-row rounded-hh-lg px-2 text-xs">{job.job_id}</div>
@@ -84,14 +85,14 @@ export default function HelpeeHome() {
             <div className="flex gap-4 justify-center">
               <button
                 type="button"
-                onClick={() => { setShowTypeModal(false); navigate('/admin/jobs/new', { state: { category: 'one-time' } }) }}
+                onClick={() => { setShowTypeModal(false); navigate(jobNewPath(role), { state: { category: 'one-time' } }) }}
                 className="flex-1 py-4 bg-white text-hh-text font-medium rounded-hh border-2 border-hh-green hover:bg-hh-green hover:text-white transition-colors"
               >
                 One-Time Job
               </button>
               <button
                 type="button"
-                onClick={() => { setShowTypeModal(false); navigate('/admin/jobs/new', { state: { category: 'frequent' } }) }}
+                onClick={() => { setShowTypeModal(false); navigate(jobNewPath(role), { state: { category: 'frequent' } }) }}
                 className="flex-1 py-4 bg-white text-hh-text font-medium rounded-hh border-2 border-hh-green hover:bg-hh-green hover:text-white transition-colors"
               >
                 Frequent Job

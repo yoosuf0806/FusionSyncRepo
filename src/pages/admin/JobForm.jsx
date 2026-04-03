@@ -14,6 +14,7 @@ import LoadingSpinner from '../../components/LoadingSpinner'
 import ErrorBanner from '../../components/ErrorBanner'
 import ConfirmModal from '../../components/ConfirmModal'
 import { WORKFLOW_STAGES, JOB_STATUS_LABELS, getCompletedStages } from '../../constants/jobStatuses'
+import { jobsHubPath, jobDetailPath } from '../../constants/jobPaths'
 
 const ATT_PAGE_SIZE = 10
 
@@ -215,7 +216,7 @@ export default function JobForm() {
   const navigate = useNavigate()
   const { id } = useParams()
   const location = useLocation()
-  const { user: authUser, isAdmin, isSupervisor, isHelper, isHelpee } = useAuth()
+  const { user: authUser, role, isAdmin, isSupervisor, isHelper, isHelpee } = useAuth()
 
   const isEdit = Boolean(id)
   const [category, setCategory] = useState(() => {
@@ -267,6 +268,28 @@ export default function JobForm() {
   const [dbUser, setDbUser] = useState(null)
 
   const canManage = isAdmin || isSupervisor
+
+  // Replace /admin/jobs/:id with role-scoped URL in the address bar (helpee/helper)
+  useEffect(() => {
+    if (!role || !id || !isEdit) return
+    if (!location.pathname.startsWith('/admin/jobs/')) return
+    const canonical = jobDetailPath(role, id)
+    if (location.pathname !== canonical) {
+      navigate(canonical, { replace: true })
+    }
+  }, [role, id, isEdit, location.pathname, navigate])
+
+  // Helpee opening /admin/jobs/new → /helpee/jobs/new (keep frequent category in state)
+  useEffect(() => {
+    if (!role || isEdit) return
+    if (location.pathname !== '/admin/jobs/new' && location.pathname !== '/admin/jobs/new/frequent') return
+    if (role !== 'helpee') return
+    const isFreq = location.pathname.includes('frequent')
+    navigate('/helpee/jobs/new', {
+      replace: true,
+      state: { ...location.state, ...(isFreq ? { category: 'frequent' } : {}) },
+    })
+  }, [role, isEdit, location.pathname, navigate])
 
   useEffect(() => {
     if (!authUser) return
@@ -407,7 +430,7 @@ export default function JobForm() {
       } else {
         await createJob({ ...form, job_category: category }, answers, assocUsers)
       }
-      navigate('/admin/manage-jobs')
+      navigate(jobsHubPath(role))
     } catch (e) {
       setError(e.message)
     } finally {
@@ -888,13 +911,13 @@ export default function JobForm() {
             <button onClick={handleSave} disabled={saving} className="btn-action px-10">
               {saving ? 'Saving...' : isEdit ? 'Save Changes' : 'Create Job'}
             </button>
-            <button onClick={() => navigate('/admin/manage-jobs')} className="btn-filter">
+            <button onClick={() => navigate(jobsHubPath(role))} className="btn-filter">
               {isEdit ? 'Back' : 'Cancel'}
             </button>
           </div>
         ) : (
           <div className="flex gap-3">
-            <button onClick={() => navigate('/admin/manage-jobs')} className="btn-filter px-8">
+            <button onClick={() => navigate(jobsHubPath(role))} className="btn-filter px-8">
               ← Back to Jobs
             </button>
           </div>
