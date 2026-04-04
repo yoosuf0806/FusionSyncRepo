@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import MainLayout from '../../layouts/MainLayout'
 import { useAuth } from '../../contexts/AuthContext'
+import { usersHubPath } from '../../constants/jobPaths'
 import { getUserById, createUser, updateUser, adminResetUserPassword } from '../../services/userService'
 import { getDepartments } from '../../services/departmentService'
 import { getJobSpecs } from '../../services/jobSpecService'
@@ -15,7 +16,7 @@ const ADMIN_ONLY_TYPES = ['admin', 'supervisor']
 export default function UserForm() {
   const navigate = useNavigate()
   const { id } = useParams()
-  const { isAdmin } = useAuth()
+  const { isAdmin, role } = useAuth()
   const isEdit = Boolean(id)
 
   const [form, setForm] = useState({
@@ -111,7 +112,7 @@ export default function UserForm() {
       } else {
         await createUser(form, form.password)
       }
-      navigate('/admin/manage-users')
+      navigate(usersHubPath(role))
     } catch (err) {
       setApiError(err.message)
     } finally {
@@ -279,7 +280,7 @@ export default function UserForm() {
             {saving ? 'Saving...' : 'Save'}
           </button>
           <button
-            onClick={() => navigate('/admin/manage-users')}
+            onClick={() => navigate(usersHubPath(role))}
             className="btn-filter"
           >
             Cancel

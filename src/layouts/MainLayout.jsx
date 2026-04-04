@@ -2,6 +2,9 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { getUnreadCount } from '../services/notificationService'
+import {
+  jobsHubPath, usersHubPath, jobSpecsHubPath,
+} from '../constants/jobPaths'
 
 const BellIcon = () => (
   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -46,25 +49,34 @@ export default function MainLayout({ children, title }) {
   const location = useLocation()
   const { isAdmin, isSupervisor, isHelper, isHelpee, signOut, user: authUser } = useAuth()
 
-  const homePath = isAdmin || isSupervisor ? '/admin/home'
-    : isHelper ? '/helper/home'
+  const role = isAdmin ? 'admin' : isSupervisor ? 'supervisor' : isHelper ? 'helper' : 'helpee'
+
+  const homePath = isAdmin        ? '/admin/home'
+    : isSupervisor  ? '/supervisor/home'
+    : isHelper      ? '/helper/home'
     : '/helpee/home'
 
-  const manageJobsPath = isHelpee ? '/helpee/home' : '/admin/manage-jobs'
-
   const navItems = [
-    { label: 'Manage Users',             path: '/admin/manage-users', show: isAdmin || isSupervisor },
-    { label: 'Manage Jobs',              path: manageJobsPath,        show: true },
-    { label: 'Manage Job Specifications',path: '/admin/job-specs',    show: isAdmin || isSupervisor },
-    { label: 'Manage Setup',             path: '/admin/setup',        show: isAdmin },
+    { label: 'Manage Users',              path: usersHubPath(role),    show: isAdmin || isSupervisor },
+    { label: 'Manage Jobs',               path: jobsHubPath(role),     show: true },
+    { label: 'Manage Job Specifications', path: jobSpecsHubPath(role), show: isAdmin || isSupervisor },
+    { label: 'Manage Setup',              path: '/admin/setup',        show: isAdmin },
   ].filter(item => item.show)
 
   const navItemActive = (item) => {
     if (item.label === 'Manage Jobs') {
-      if (isHelpee) {
-        return location.pathname === '/helpee/home' || location.pathname.startsWith('/helpee/jobs')
-      }
+      if (isHelpee)     return location.pathname === '/helpee/home'     || location.pathname.startsWith('/helpee/jobs')
+      if (isHelper)     return location.pathname.startsWith('/helper/manage-jobs') || location.pathname.startsWith('/helper/jobs')
+      if (isSupervisor) return location.pathname.startsWith('/supervisor/manage-jobs') || location.pathname.startsWith('/supervisor/jobs')
       return location.pathname.startsWith('/admin/manage-jobs') || location.pathname.startsWith('/admin/jobs')
+    }
+    if (item.label === 'Manage Users') {
+      if (isSupervisor) return location.pathname.startsWith('/supervisor/manage-users') || location.pathname.startsWith('/supervisor/users')
+      return location.pathname.startsWith('/admin/manage-users') || location.pathname.startsWith('/admin/users')
+    }
+    if (item.label === 'Manage Job Specifications') {
+      if (isSupervisor) return location.pathname.startsWith('/supervisor/job-specs')
+      return location.pathname.startsWith('/admin/job-specs')
     }
     return location.pathname.startsWith(item.path)
   }

@@ -203,6 +203,99 @@ export async function createJob(jobData, answers = [], associatedUsers = {}) {
   return job
 }
 
+/** Call after supervisor assigns new helpers on an existing job (current user must be allowed to insert notifications). */
+export async function notifyHelpersAssignedToJob(jobId, helperUserIds, jobName) {
+  const ids = (helperUserIds || []).filter(Boolean)
+  if (ids.length === 0) return
+  const message = `You have been assigned to: ${jobName || 'a job'}`
+  for (const hid of ids) {
+    const { error } = await supabase.from('notifications').insert({
+      recipient_user_id: hid,
+      title: 'Job assignment',
+      message,
+      notification_type: 'job_assigned',
+      related_job_id: jobId,
+    })
+    if (error) console.warn('notifyHelpersAssignedToJob:', error.message)
+  }
+}
+
+export async function getJobMessages(jobId) {
+  const { data, error } = await supabase
+    .from('job_messages')
+    .select('id, body, created_at, author_user_id, author_name')
+    .eq('job_id', jobId)
+    .order('created_at', { ascending: true })
+  if (error) throw error
+  return data || []
+}
+
+/**
+ * Job thread: helper ↔ supervisor (and admin). Inserts row + in-app notifications for recipients.
+ */
+export async function postJobMessage(jobId, body, { authorUserId, authorRole, authorName }) {
+  const text = (body || '').trim()
+  if (!text) throw new Error('Message cannot be empty')
+  if (!authorUserId) throw new Error('Not signed in')
+
+  const { error: insErr } = await supabase.from('job_messages').insert({
+    job_id: jobId,
+    author_user_id: authorUserId,
+    author_name: (authorName || 'User').trim() || 'User',
+    body: text,
+  })
+  if (insErr) throw insErr
+
+  const { data: jau } = await supabase
+    .from('job_associated_users')
+    .select('user_id, role')
+    .eq('job_id', jobId)
+
+  const rows = jau || []
+  const helperIds = rows.filter(r => r.role === 'helper').map(r => r.user_id)
+  const supIds = rows.filter(r => r.role === 'supervisor').map(r => r.user_id)
+  const recipientIds = new Set()
+
+  if (authorRole === 'helper') {
+    supIds.forEach(id => {
+      if (id !== authorUserId) recipientIds.add(id)
+    })
+    if (supIds.length === 0) {
+      const { data: allSups } = await supabase
+        .from('users')
+        .select('id')
+        .eq('user_type', 'supervisor')
+        .eq('is_active', true)
+      for (const s of allSups || []) {
+        if (s.id !== authorUserId) recipientIds.add(s.id)
+      }
+    }
+  } else if (authorRole === 'supervisor') {
+    helperIds.forEach(id => {
+      if (id !== authorUserId) recipientIds.add(id)
+    })
+  } else if (authorRole === 'admin') {
+    helperIds.forEach(id => {
+      if (id !== authorUserId) recipientIds.add(id)
+    })
+    supIds.forEach(id => {
+      if (id !== authorUserId) recipientIds.add(id)
+    })
+  }
+
+  const preview = text.length > 160 ? `${text.slice(0, 160)}…` : text
+  for (const rid of recipientIds) {
+    const { error } = await supabase.from('notifications').insert({
+      recipient_user_id: rid,
+      title: 'Job message',
+      message: preview,
+      notification_type: 'job_message',
+      related_job_id: jobId,
+    })
+    if (error) console.warn('postJobMessage notification:', error.message)
+  }
+}
+
 export async function updateJobStatus(jobId, newStatus) {
   const { data, error } = await supabase
     .from('jobs')

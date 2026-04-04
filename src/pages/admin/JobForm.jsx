@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import MainLayout from '../../layouts/MainLayout'
 import { useAuth } from '../../contexts/AuthContext'
@@ -6,6 +6,7 @@ import {
   getJobById, createJob, updateJob, updateJobStatus,
   saveInvoice, uploadInvoiceAttachment, upsertAssociatedUser, removeAssociatedUser,
   getAttendanceForJob, upsertAttendanceRow, updateAttendanceStatus,
+  getJobMessages, postJobMessage, notifyHelpersAssignedToJob,
 } from '../../services/jobService'
 import { getJobSpecs, getQuestionsForSpec } from '../../services/jobSpecService'
 import { getUsers } from '../../services/userService'
@@ -168,6 +169,94 @@ function RejectModal({ onConfirm, onClose }) {
   )
 }
 
+function JobMessageModal({ jobId, open, onClose, authUser, authorRole }) {
+  const [messages, setMessages] = useState([])
+  const [text, setText] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [posting, setPosting] = useState(false)
+  const [err, setErr] = useState('')
+
+  useEffect(() => {
+    if (!open || !jobId) return
+    setLoading(true)
+    setErr('')
+    getJobMessages(jobId)
+      .then(setMessages)
+      .catch(e => setErr(e.message))
+      .finally(() => setLoading(false))
+  }, [open, jobId])
+
+  const handlePost = async () => {
+    if (!text.trim() || !authUser?.id) return
+    setPosting(true)
+    setErr('')
+    try {
+      await postJobMessage(jobId, text, {
+        authorUserId: authUser.id,
+        authorRole,
+        authorName: authUser.user_name,
+      })
+      setText('')
+      setMessages(await getJobMessages(jobId))
+    } catch (e) {
+      setErr(e.message)
+    } finally {
+      setPosting(false)
+    }
+  }
+
+  if (!open) return null
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
+      <div className="bg-white rounded-hh-xl shadow-hh-lg w-full max-w-lg max-h-[85vh] flex flex-col">
+        <div className="flex items-center justify-between px-5 py-4 border-b">
+          <h3 className="font-semibold">Job message</h3>
+          <button type="button" onClick={onClose} className="btn-icon w-8 h-8">✕</button>
+        </div>
+        <div className="flex-1 overflow-y-auto px-5 py-3 space-y-3 min-h-[200px]">
+          {err && <p className="text-sm text-hh-error">{err}</p>}
+          {loading ? (
+            <p className="text-sm text-hh-placeholder text-center py-6">Loading…</p>
+          ) : messages.length === 0 ? (
+            <p className="text-sm text-hh-placeholder text-center py-6">No messages yet.</p>
+          ) : (
+            messages.map(m => {
+              const who = m.author_name || 'User'
+              const when = m.created_at ? new Date(m.created_at).toLocaleString() : ''
+              return (
+                <div key={m.id} className="rounded-hh bg-gray-50 px-3 py-2 text-sm">
+                  <p className="text-xs text-hh-placeholder mb-1">{who} · {when}</p>
+                  <p className="whitespace-pre-wrap text-hh-text">{m.body}</p>
+                </div>
+              )
+            })
+          )}
+        </div>
+        <div className="px-5 py-4 border-t space-y-2">
+          <textarea
+            className="form-cell w-full outline-none text-sm h-24 resize-none py-2"
+            placeholder="Write an update for the supervisor or helper…"
+            value={text}
+            onChange={e => setText(e.target.value)}
+          />
+          <div className="flex gap-2 justify-end">
+            <button type="button" onClick={onClose} className="btn-filter">Close</button>
+            <button
+              type="button"
+              onClick={handlePost}
+              disabled={posting || !text.trim()}
+              className="btn-action px-6 bg-hh-green hover:opacity-90 disabled:opacity-50"
+            >
+              {posting ? 'Posting…' : 'Post'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Workflow Display ───────────────────────────────────────────────────────
 function WorkflowDisplay({ status, associatedUsers }) {
   const completed = getCompletedStages(status, associatedUsers)
@@ -266,13 +355,17 @@ export default function JobForm() {
   const [showInvoiceView, setShowInvoiceView] = useState(false)
   const [statusConfirm, setStatusConfirm] = useState(null)
   const [dbUser, setDbUser] = useState(null)
+  const [showJobMessageModal, setShowJobMessageModal] = useState(false)
+
+  const prevHelperIdsRef = useRef([])
 
   const canManage = isAdmin || isSupervisor
+  const canUseJobMessages = isAdmin || isSupervisor || isHelper
+  const jobMessageAuthorRole = isAdmin ? 'admin' : isSupervisor ? 'supervisor' : 'helper'
 
-  // Replace /admin/jobs/:id with role-scoped URL in the address bar (helpee/helper)
+  // Redirect any wrong-prefix job URL to the role-canonical one (edit only)
   useEffect(() => {
     if (!role || !id || !isEdit) return
-    if (!location.pathname.startsWith('/admin/jobs/')) return
     const canonical = jobDetailPath(role, id)
     if (location.pathname !== canonical) {
       navigate(canonical, { replace: true })
@@ -369,6 +462,11 @@ export default function JobForm() {
       setHelpers(assoc.filter(a => a.role === 'helper').map(a => a.users).filter(Boolean))
       setSupervisor(assoc.find(a => a.role === 'supervisor')?.users || null)
 
+      prevHelperIdsRef.current = assoc
+        .filter(a => a.role === 'helper')
+        .map(a => a.users?.id)
+        .filter(Boolean)
+
       if (job.invoice) setInvoice(job.invoice)
 
       // Load attendance for frequent jobs
@@ -423,10 +521,16 @@ export default function JobForm() {
         supervisor_id: supervisor?.id,
       }
       if (isEdit) {
+        const prevHelpers = prevHelperIdsRef.current
         await updateJob(dbJobId, { ...form, job_category: category }, answers)
         if (helpee) await upsertAssociatedUser(dbJobId, helpee.id, 'helpee')
         for (const h of helpers) await upsertAssociatedUser(dbJobId, h.id, 'helper')
         if (supervisor) await upsertAssociatedUser(dbJobId, supervisor.id, 'supervisor')
+        const newHelperIds = helpers.map(h => h.id).filter(id => !prevHelpers.includes(id))
+        if (canManage && newHelperIds.length > 0) {
+          await notifyHelpersAssignedToJob(dbJobId, newHelperIds, form.job_name)
+        }
+        prevHelperIdsRef.current = helpers.map(h => h.id)
       } else {
         await createJob({ ...form, job_category: category }, answers, assocUsers)
       }
@@ -482,7 +586,7 @@ export default function JobForm() {
   }
 
   const isFrequent = category === JOB_CATEGORIES.FREQUENT
-  const isJobFieldsReadOnly = isHelpee || isHelper
+  const isJobFieldsReadOnly = (isHelpee || isHelper) && isEdit
   const jobTitle = isFrequent ? 'Job (Frequent Job)' : 'Job (One-Time Job)'
   const inputClass = 'form-cell flex-1 w-full outline-none text-sm'
   const isHourly = form.pricing_structure === 'hourly'
@@ -725,12 +829,29 @@ export default function JobForm() {
           )}
         </div>
 
-        {/* ── VIEW REMARK ───────────────────────────── */}
-        {isEdit && (
-          <div className="flex justify-end">
-            <button onClick={() => navigate(`/helpee/jobs/${dbJobId}/remark`)} className="btn-select px-5 text-sm">
-              View Remark
-            </button>
+        {/* ── JOB MESSAGE + VIEW REMARK ─────────────── */}
+        {(canUseJobMessages || isEdit) && (
+          <div className="flex flex-col items-end gap-2">
+            {canUseJobMessages && (
+              <button
+                type="button"
+                disabled={!dbJobId}
+                title={!dbJobId ? 'Save the job first to send messages' : ''}
+                onClick={() => dbJobId && setShowJobMessageModal(true)}
+                className="btn-select px-5 text-sm bg-hh-green text-white border-hh-green hover:opacity-90 disabled:opacity-45 disabled:cursor-not-allowed"
+              >
+                Job message
+              </button>
+            )}
+            {isEdit && (
+              <button
+                type="button"
+                onClick={() => navigate(`/jobs/${dbJobId}/remark`)}
+                className="btn-select px-5 text-sm"
+              >
+                View Remark
+              </button>
+            )}
           </div>
         )}
 
@@ -906,18 +1027,18 @@ export default function JobForm() {
         )}
 
         {/* ── SAVE / UPDATE buttons ───────────────── */}
-        {canManage ? (
+        {(canManage || (!isEdit && isHelpee)) ? (
           <div className="flex gap-3">
-            <button onClick={handleSave} disabled={saving} className="btn-action px-10">
+            <button type="button" onClick={handleSave} disabled={saving} className="btn-action px-10">
               {saving ? 'Saving...' : isEdit ? 'Save Changes' : 'Create Job'}
             </button>
-            <button onClick={() => navigate(jobsHubPath(role))} className="btn-filter">
+            <button type="button" onClick={() => navigate(jobsHubPath(role))} className="btn-filter">
               {isEdit ? 'Back' : 'Cancel'}
             </button>
           </div>
         ) : (
           <div className="flex gap-3">
-            <button onClick={() => navigate(jobsHubPath(role))} className="btn-filter px-8">
+            <button type="button" onClick={() => navigate(jobsHubPath(role))} className="btn-filter px-8">
               ← Back to Jobs
             </button>
           </div>
@@ -963,6 +1084,15 @@ export default function JobForm() {
         <RejectModal
           onConfirm={(reason) => handleRejectRow(rejectTarget, reason)}
           onClose={() => setRejectTarget(null)} />
+      )}
+      {showJobMessageModal && dbJobId && canUseJobMessages && (
+        <JobMessageModal
+          jobId={dbJobId}
+          open={showJobMessageModal}
+          onClose={() => setShowJobMessageModal(false)}
+          authUser={authUser}
+          authorRole={jobMessageAuthorRole}
+        />
       )}
     </MainLayout>
   )

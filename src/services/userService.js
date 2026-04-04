@@ -112,8 +112,9 @@ export async function createUser(userData, password) {
   // Send welcome notification — ignore errors so user creation still succeeds
   await supabase.from('notifications').insert({
     recipient_user_id: data.id,
+    title: 'Welcome',
     message: `Welcome to Helping Hands, ${userData.user_name}! Your account has been created as ${userData.user_type}.`,
-    notification_type: 'system',
+    notification_type: 'general',
     is_read: false,
     delivery_channels: ['in_app'],
   }).then(() => {}, () => {})
@@ -122,10 +123,18 @@ export async function createUser(userData, password) {
 }
 
 export async function updateUser(id, userData) {
+  const { data: existing, error: fetchErr } = await supabase
+    .from('users')
+    .select('user_name, user_type, auth_user_id')
+    .eq('id', id)
+    .single()
+  if (fetchErr) throw fetchErr
+
   const { data, error } = await supabase
     .from('users')
     .update({
       user_name: userData.user_name,
+      user_email: userData.user_email?.trim() || null,
       user_phone: userData.user_phone || null,
       user_location: userData.user_location || null,
       department_id: userData.department_id || null,
@@ -136,6 +145,39 @@ export async function updateUser(id, userData) {
     .select()
     .single()
   if (error) throw error
+
+  const nameChanged = (userData.user_name || '').trim() !== (existing.user_name || '').trim()
+  const typeChanged = (userData.user_type || '') !== (existing.user_type || '')
+
+  if (!existing.auth_user_id || (!nameChanged && !typeChanged)) {
+    return data
+  }
+
+  if (nameChanged) {
+    if (!adminClient) {
+      throw new Error(
+        'Profile saved, but the login email (SSO) was not updated. Set VITE_SUPABASE_SERVICE_ROLE_KEY (legacy JWT service role) in .env.'
+      )
+    }
+    const { error: auErr } = await adminClient.auth.admin.updateUserById(existing.auth_user_id, {
+      email: normalizeLoginEmail(userData.user_name),
+      user_metadata: { username: userData.user_name, role: userData.user_type },
+    })
+    if (auErr) {
+      throw new Error(
+        `Profile saved, but Supabase Auth (SSO) could not be updated: ${auErr.message}. ` +
+          'Check VITE_SUPABASE_SERVICE_ROLE_KEY (legacy JWT service role).'
+      )
+    }
+  } else if (typeChanged && adminClient) {
+    const { error: metaErr } = await adminClient.auth.admin.updateUserById(existing.auth_user_id, {
+      user_metadata: { username: userData.user_name, role: userData.user_type },
+    })
+    if (metaErr) {
+      throw new Error(`Profile saved, but Auth metadata sync failed: ${metaErr.message}`)
+    }
+  }
+
   return data
 }
 
