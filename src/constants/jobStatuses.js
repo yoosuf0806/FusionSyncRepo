@@ -33,7 +33,7 @@ export const WORKFLOW_STAGES = [
   { key: 'payment_confirmed', label: ['Payment', 'Confirmed'] },
 ]
 
-const STATUS_ORDER = [
+export const STATUS_ORDER = [
   'request_raised',
   'manager_assigned',
   'helper_assigned',
@@ -42,6 +42,17 @@ const STATUS_ORDER = [
   'payment_confirmed',
   'job_closed',
 ]
+
+/**
+ * Returns true only if newStatus comes strictly AFTER currentStatus in the workflow.
+ * Once a job reaches job_closed, no transition is allowed.
+ */
+export function canTransitionTo(currentStatus, newStatus) {
+  if (currentStatus === 'job_closed') return false
+  const curIdx = STATUS_ORDER.indexOf(currentStatus)
+  const newIdx = STATUS_ORDER.indexOf(newStatus)
+  return curIdx !== -1 && newIdx !== -1 && newIdx > curIdx
+}
 
 // Legacy helper — used where only status is available
 export function isStageComplete(currentStatus, stageKey) {

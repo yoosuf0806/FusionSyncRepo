@@ -130,7 +130,9 @@ export async function updateUser(id, userData) {
     .single()
   if (fetchErr) throw fetchErr
 
-  const { data, error } = await supabase
+  // Use .select('id') instead of .select().single() to avoid "cannot coerce result"
+  // errors when the supervisor's RLS SELECT policy filters the RETURNING clause to 0 rows.
+  const { data: updatedRows, error } = await supabase
     .from('users')
     .update({
       user_name: userData.user_name,
@@ -142,9 +144,12 @@ export async function updateUser(id, userData) {
       user_type: userData.user_type,
     })
     .eq('id', id)
-    .select()
-    .single()
+    .select('id')
   if (error) throw error
+  if (!updatedRows || updatedRows.length === 0) {
+    throw new Error('Update failed — record not found or you do not have permission to edit this user.')
+  }
+  const data = { id, ...userData }
 
   const nameChanged = (userData.user_name || '').trim() !== (existing.user_name || '').trim()
   const typeChanged = (userData.user_type || '') !== (existing.user_type || '')

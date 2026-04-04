@@ -14,7 +14,7 @@ import FormRow from '../../components/FormRow'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import ErrorBanner from '../../components/ErrorBanner'
 import ConfirmModal from '../../components/ConfirmModal'
-import { WORKFLOW_STAGES, JOB_STATUS_LABELS, getCompletedStages } from '../../constants/jobStatuses'
+import { WORKFLOW_STAGES, JOB_STATUS_LABELS, getCompletedStages, canTransitionTo } from '../../constants/jobStatuses'
 import { jobsHubPath, jobDetailPath } from '../../constants/jobPaths'
 
 const ATT_PAGE_SIZE = 10
@@ -860,19 +860,26 @@ export default function JobForm() {
           <section>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               {[
-                { label: 'Job Started', newStatus: 'job_started' },
-                { label: 'Job Finished', newStatus: 'job_finished' },
+                { label: 'Job Started',       newStatus: 'job_started' },
+                { label: 'Job Finished',      newStatus: 'job_finished' },
                 ...(canManage ? [
                   { label: 'Payment Confirmed', newStatus: 'payment_confirmed' },
-                  { label: 'Job Close', newStatus: 'job_closed' },
+                  { label: 'Job Close',         newStatus: 'job_closed' },
                 ] : []),
-              ].map(({ label, newStatus }) => (
-                <button key={newStatus} onClick={() => setStatusConfirm({ label, newStatus })}
-                  disabled={status === newStatus}
-                  className={`btn-action ${status === newStatus ? 'opacity-50 cursor-not-allowed' : ''}`}>
-                  {label}
-                </button>
-              ))}
+              ].map(({ label, newStatus }) => {
+                const allowed = canTransitionTo(status, newStatus)
+                return (
+                  <button
+                    key={newStatus}
+                    onClick={() => allowed && setStatusConfirm({ label, newStatus })}
+                    disabled={!allowed}
+                    title={!allowed ? 'Cannot go back to a previous status' : undefined}
+                    className={`btn-action ${!allowed ? 'opacity-40 cursor-not-allowed' : ''}`}
+                  >
+                    {label}
+                  </button>
+                )
+              })}
             </div>
           </section>
         )}

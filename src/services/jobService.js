@@ -196,6 +196,17 @@ export async function createJob(jobData, answers = [], associatedUsers = {}) {
       assocRows.push({ job_id: job.id, user_id: hid, role: 'helper' })
     }
   }
+
+  // Always ensure the job requester (helpee) is in job_associated_users so they can see the job
+  if (jobData.job_requester_id) {
+    const alreadyAdded = assocRows.some(
+      r => r.user_id === jobData.job_requester_id && r.role === 'helpee'
+    )
+    if (!alreadyAdded) {
+      assocRows.push({ job_id: job.id, user_id: jobData.job_requester_id, role: 'helpee' })
+    }
+  }
+
   if (assocRows.length > 0) {
     await supabase.from('job_associated_users').insert(assocRows)
   }
