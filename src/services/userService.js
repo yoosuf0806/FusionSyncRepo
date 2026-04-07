@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
-import { supabase } from '../supabase/client'
+import { supabase } from '../../supabase/client'
 import { normalizeLoginEmail } from './authService'
 
 // Admin client using service role key. Works when the key is a legacy JWT (eyJ...).

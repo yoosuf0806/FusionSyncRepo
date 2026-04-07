@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
-import { supabase } from '../supabase/client'
+import { supabase } from '../../supabase/client'
 
 // Service-role client — bypasses RLS for privileged operations
 // (auto-assigning supervisor, notifying admins, fetching all users).

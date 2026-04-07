@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import AuthLayout from '../../layouts/AuthLayout'
-import { supabase } from '../../supabase/client'
+import { supabase } from '../../../supabase/client'
 
 export default function ResetPassword() {
   const navigate = useNavigate()

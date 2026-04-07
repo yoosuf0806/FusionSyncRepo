@@ -2,7 +2,7 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
 import './index.css'
-import { testConnection } from './supabase/client.js'
+import { testConnection } from '../supabase/client.js'
 
 // Test Supabase connection on startup
 testConnection()

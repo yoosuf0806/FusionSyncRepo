@@ -1,4 +1,4 @@
-import { supabase } from '../supabase/client'
+import { supabase } from '../../supabase/client'
 
 export async function getJobSpecs({ search = '', activeOnly = true } = {}) {
   let query = supabase

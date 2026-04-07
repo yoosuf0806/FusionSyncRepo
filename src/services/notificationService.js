@@ -1,4 +1,4 @@
-import { supabase } from '../supabase/client'
+import { supabase } from '../../supabase/client'
 
 export async function getNotifications(userId, { limit = 20, offset = 0 } = {}) {
   const { data, error } = await supabase

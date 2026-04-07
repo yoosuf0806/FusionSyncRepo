@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState } from 'react'
-import { supabase } from '../supabase/client'
+import { supabase } from '../../supabase/client'
 import { ROLE_HOME_ROUTES } from '../constants/roles'
 
 const AuthContext = createContext(null)

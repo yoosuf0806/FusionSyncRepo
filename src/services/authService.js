@@ -1,4 +1,4 @@
-import { supabase } from '../supabase/client'
+import { supabase } from '../../supabase/client'
 
 // Converts a plain username to the internal login email format.
 // Spaces become dots; special chars are stripped.
