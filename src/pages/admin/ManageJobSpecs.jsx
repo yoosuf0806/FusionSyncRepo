@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import MainLayout from '../../layouts/MainLayout'
+import { useAuth } from '../../contexts/AuthContext'
+import { jobSpecNewPath, jobSpecEditPath } from '../../constants/jobPaths'
 import { getJobSpecs, deleteJobSpec } from '../../services/jobSpecService'
 import SearchInput from '../../components/SearchInput'
 import ConfirmModal from '../../components/ConfirmModal'
@@ -23,6 +25,7 @@ const TrashIcon = () => (
 
 export default function ManageJobSpecs() {
   const navigate = useNavigate()
+  const { isAdmin, role } = useAuth()
   const [specs, setSpecs] = useState([])
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
@@ -66,13 +69,15 @@ export default function ManageJobSpecs() {
           className="w-56"
         />
 
-        <button
-          onClick={() => navigate('/admin/job-specs/new')}
-          className="btn-add"
-          title="Add Job Specification"
-        >
-          ⊕
-        </button>
+        {isAdmin && (
+          <button
+            onClick={() => navigate(jobSpecNewPath(role))}
+            className="btn-add"
+            title="Add Job Specification"
+          >
+            ⊕
+          </button>
+        )}
 
         {error && <ErrorBanner message={error} onClose={() => setError('')} />}
 
@@ -93,20 +98,24 @@ export default function ManageJobSpecs() {
                 <div className="table-row rounded-hh-lg px-3 text-sm">{s.job_type_id}</div>
                 <div className="table-row rounded-hh-lg px-3 text-sm">{s.job_type_name}</div>
                 <div className="table-row rounded-hh-lg px-3 gap-2">
-                  <button
-                    onClick={() => navigate(`/admin/job-specs/${s.id}/edit`)}
-                    className="btn-icon w-8 h-8"
-                    title="Edit"
-                  >
-                    <PencilIcon />
-                  </button>
-                  <button
-                    onClick={() => setDeleteTarget(s)}
-                    className="btn-icon w-8 h-8 hover:text-hh-error"
-                    title="Delete"
-                  >
-                    <TrashIcon />
-                  </button>
+                  {isAdmin && (
+                    <>
+                      <button
+                        onClick={() => navigate(jobSpecEditPath(role, s.id))}
+                        className="btn-icon w-8 h-8"
+                        title="Edit"
+                      >
+                        <PencilIcon />
+                      </button>
+                      <button
+                        onClick={() => setDeleteTarget(s)}
+                        className="btn-icon w-8 h-8 hover:text-hh-error"
+                        title="Delete"
+                      >
+                        <TrashIcon />
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             ))

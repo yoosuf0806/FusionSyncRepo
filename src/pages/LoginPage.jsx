@@ -122,11 +122,19 @@ export default function LoginPage({ role }) {
         )}
       </div>
 
+      {/* Forgot password */}
+      <button
+        onClick={() => navigate('/forgot-password')}
+        className="text-white/70 text-xs hover:text-white transition-colors"
+      >
+        Forgot password?
+      </button>
+
       {/* Back link — not shown on helpee page */}
       {role !== 'helpee' && (
         <button
           onClick={() => navigate('/')}
-          className="text-white/70 text-xs hover:text-white transition-colors mt-2"
+          className="text-white/70 text-xs hover:text-white transition-colors mt-1"
         >
           ← Back to role selection
         </button>

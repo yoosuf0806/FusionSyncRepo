@@ -1,11 +1,12 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import MainLayout from '../../layouts/MainLayout'
 import { useAuth } from '../../contexts/AuthContext'
 import {
   getJobById, createJob, updateJob, updateJobStatus,
-  saveInvoice, upsertAssociatedUser,
+  saveInvoice, uploadInvoiceAttachment, upsertAssociatedUser, removeAssociatedUser,
   getAttendanceForJob, upsertAttendanceRow, updateAttendanceStatus,
+  getJobMessages, postJobMessage, notifyHelpersAssignedToJob,
 } from '../../services/jobService'
 import { getJobSpecs, getQuestionsForSpec } from '../../services/jobSpecService'
 import { getUsers } from '../../services/userService'
@@ -13,7 +14,8 @@ import FormRow from '../../components/FormRow'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import ErrorBanner from '../../components/ErrorBanner'
 import ConfirmModal from '../../components/ConfirmModal'
-import { WORKFLOW_STAGES, JOB_STATUS_LABELS, getCompletedStages } from '../../constants/jobStatuses'
+import { WORKFLOW_STAGES, JOB_STATUS_LABELS, getCompletedStages, canTransitionTo } from '../../constants/jobStatuses'
+import { jobsHubPath, jobDetailPath } from '../../constants/jobPaths'
 
 const ATT_PAGE_SIZE = 10
 
@@ -64,12 +66,34 @@ function InvoiceModal({ jobId, existing, onSave, onClose }) {
     invoice_date: existing?.invoice_date || '',
     invoice_status: existing?.invoice_status || 'draft',
     invoice_notes: existing?.invoice_notes || '',
+    attachment_url: existing?.attachment_url || '',
   })
+  const [file, setFile] = useState(null)
   const [saving, setSaving] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState('')
+
+  const ACCEPTED = '.pdf,.doc,.docx,.png,.jpg,.jpeg,.xls,.xlsx'
+
   const handleSave = async () => {
     setSaving(true)
-    try { await saveInvoice(jobId, form); onSave({ ...form }) } catch (e) { alert(e.message) } finally { setSaving(false) }
+    try {
+      let attachmentUrl = form.attachment_url
+      if (file) {
+        setUploadProgress('Uploading file...')
+        attachmentUrl = await uploadInvoiceAttachment(jobId, file)
+        setUploadProgress('')
+      }
+      const payload = { ...form, attachment_url: attachmentUrl }
+      await saveInvoice(jobId, payload)
+      onSave(payload)
+    } catch (e) {
+      alert(e.message)
+      setUploadProgress('')
+    } finally {
+      setSaving(false)
+    }
   }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
       <div className="bg-white rounded-hh-xl shadow-hh-lg w-full max-w-sm p-6 space-y-3">
@@ -94,6 +118,30 @@ function InvoiceModal({ jobId, existing, onSave, onClose }) {
             {['draft','sent','paid','void'].map(s => <option key={s} value={s} className="capitalize">{s}</option>)}
           </select>
         </FormRow>
+
+        {/* Attachment upload */}
+        <div className="space-y-1">
+          <p className="text-xs font-medium text-hh-text">Attachment</p>
+          <label className="flex items-center gap-2 form-cell cursor-pointer hover:bg-hh-mint/30 transition-colors">
+            <svg className="w-4 h-4 text-hh-green flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+            </svg>
+            <span className="text-xs text-hh-placeholder truncate">
+              {file ? file.name : (form.attachment_url ? 'Replace file' : 'Click to attach (PDF, Word, Excel, Image)')}
+            </span>
+            <input type="file" accept={ACCEPTED} className="hidden"
+              onChange={e => setFile(e.target.files?.[0] || null)} />
+          </label>
+          {form.attachment_url && !file && (
+            <a href={form.attachment_url} target="_blank" rel="noreferrer"
+              className="text-xs text-hh-green underline block">
+              View existing attachment ↗
+            </a>
+          )}
+          {uploadProgress && <p className="text-xs text-hh-placeholder">{uploadProgress}</p>}
+        </div>
+
         <div className="flex gap-2 pt-2">
           <button onClick={handleSave} disabled={saving} className="btn-action px-6">{saving ? 'Saving...' : 'Save Invoice'}</button>
           <button onClick={onClose} className="btn-filter">Cancel</button>
@@ -115,6 +163,94 @@ function RejectModal({ onConfirm, onClose }) {
         <div className="flex gap-2">
           <button onClick={() => onConfirm(reason)} className="btn-action px-6 bg-hh-error hover:bg-red-600">Reject</button>
           <button onClick={onClose} className="btn-filter">Cancel</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function JobMessageModal({ jobId, open, onClose, authUser, authorRole }) {
+  const [messages, setMessages] = useState([])
+  const [text, setText] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [posting, setPosting] = useState(false)
+  const [err, setErr] = useState('')
+
+  useEffect(() => {
+    if (!open || !jobId) return
+    setLoading(true)
+    setErr('')
+    getJobMessages(jobId)
+      .then(setMessages)
+      .catch(e => setErr(e.message))
+      .finally(() => setLoading(false))
+  }, [open, jobId])
+
+  const handlePost = async () => {
+    if (!text.trim() || !authUser?.id) return
+    setPosting(true)
+    setErr('')
+    try {
+      await postJobMessage(jobId, text, {
+        authorUserId: authUser.id,
+        authorRole,
+        authorName: authUser.user_name,
+      })
+      setText('')
+      setMessages(await getJobMessages(jobId))
+    } catch (e) {
+      setErr(e.message)
+    } finally {
+      setPosting(false)
+    }
+  }
+
+  if (!open) return null
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
+      <div className="bg-white rounded-hh-xl shadow-hh-lg w-full max-w-lg max-h-[85vh] flex flex-col">
+        <div className="flex items-center justify-between px-5 py-4 border-b">
+          <h3 className="font-semibold">Job message</h3>
+          <button type="button" onClick={onClose} className="btn-icon w-8 h-8">✕</button>
+        </div>
+        <div className="flex-1 overflow-y-auto px-5 py-3 space-y-3 min-h-[200px]">
+          {err && <p className="text-sm text-hh-error">{err}</p>}
+          {loading ? (
+            <p className="text-sm text-hh-placeholder text-center py-6">Loading…</p>
+          ) : messages.length === 0 ? (
+            <p className="text-sm text-hh-placeholder text-center py-6">No messages yet.</p>
+          ) : (
+            messages.map(m => {
+              const who = m.author_name || 'User'
+              const when = m.created_at ? new Date(m.created_at).toLocaleString() : ''
+              return (
+                <div key={m.id} className="rounded-hh bg-gray-50 px-3 py-2 text-sm">
+                  <p className="text-xs text-hh-placeholder mb-1">{who} · {when}</p>
+                  <p className="whitespace-pre-wrap text-hh-text">{m.body}</p>
+                </div>
+              )
+            })
+          )}
+        </div>
+        <div className="px-5 py-4 border-t space-y-2">
+          <textarea
+            className="form-cell w-full outline-none text-sm h-24 resize-none py-2"
+            placeholder="Write an update for the supervisor or helper…"
+            value={text}
+            onChange={e => setText(e.target.value)}
+          />
+          <div className="flex gap-2 justify-end">
+            <button type="button" onClick={onClose} className="btn-filter">Close</button>
+            <button
+              type="button"
+              onClick={handlePost}
+              disabled={posting || !text.trim()}
+              className="btn-action px-6 bg-hh-green hover:opacity-90 disabled:opacity-50"
+            >
+              {posting ? 'Posting…' : 'Post'}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -169,7 +305,7 @@ export default function JobForm() {
   const navigate = useNavigate()
   const { id } = useParams()
   const location = useLocation()
-  const { user: authUser, isAdmin, isSupervisor, isHelper, isHelpee } = useAuth()
+  const { user: authUser, role, isAdmin, isSupervisor, isHelper, isHelpee } = useAuth()
 
   const isEdit = Boolean(id)
   const [category, setCategory] = useState(() => {
@@ -180,6 +316,7 @@ export default function JobForm() {
 
   const [form, setForm] = useState({
     job_name: '', job_description: '', job_type_id: '',
+    job_notes: '',
     // one-time fields
     job_date: '', job_start_time: '',
     // frequent fields
@@ -188,6 +325,7 @@ export default function JobForm() {
     job_location: '', job_requester_id: null, department_id: null,
     pricing_structure: 'daily',
   })
+  const [loadedJobTypeName, setLoadedJobTypeName] = useState('')
   const [jobId, setJobId] = useState('Auto-generated')
   const [status, setStatus] = useState('request_raised')
   const [dbJobId, setDbJobId] = useState(null)
@@ -198,7 +336,7 @@ export default function JobForm() {
   const [selectedSpec, setSelectedSpec] = useState(null)
 
   const [helpee, setHelpee] = useState(null)
-  const [helper, setHelper] = useState(null)
+  const [helpers, setHelpers] = useState([])
   const [supervisor, setSupervisor] = useState(null)
   const [associatedUsers, setAssociatedUsers] = useState([])
 
@@ -217,14 +355,60 @@ export default function JobForm() {
   const [showInvoiceView, setShowInvoiceView] = useState(false)
   const [statusConfirm, setStatusConfirm] = useState(null)
   const [dbUser, setDbUser] = useState(null)
+  const [showJobMessageModal, setShowJobMessageModal] = useState(false)
+
+  const prevHelperIdsRef = useRef([])
 
   const canManage = isAdmin || isSupervisor
+  const canUseJobMessages = isAdmin || isSupervisor || isHelper
+  const jobMessageAuthorRole = isAdmin ? 'admin' : isSupervisor ? 'supervisor' : 'helper'
+
+  // Redirect any wrong-prefix job URL to the role-canonical one (edit only)
+  useEffect(() => {
+    if (!role || !id || !isEdit) return
+    const canonical = jobDetailPath(role, id)
+    if (location.pathname !== canonical) {
+      navigate(canonical, { replace: true })
+    }
+  }, [role, id, isEdit, location.pathname, navigate])
+
+  // Helpee opening /admin/jobs/new → /helpee/jobs/new (keep frequent category in state)
+  useEffect(() => {
+    if (!role || isEdit) return
+    if (location.pathname !== '/admin/jobs/new' && location.pathname !== '/admin/jobs/new/frequent') return
+    if (role !== 'helpee') return
+    const isFreq = location.pathname.includes('frequent')
+    navigate('/helpee/jobs/new', {
+      replace: true,
+      state: { ...location.state, ...(isFreq ? { category: 'frequent' } : {}) },
+    })
+  }, [role, isEdit, location.pathname, navigate])
 
   useEffect(() => {
     if (!authUser) return
     setDbUser(authUser)
     if (!isEdit) setForm(prev => ({ ...prev, job_requester_id: authUser.id }))
   }, [authUser, isEdit])
+
+  // Helpee creating a job: they are always the helpee on the request
+  useEffect(() => {
+    if (!authUser || isEdit || !isHelpee) return
+    setHelpee(authUser)
+    setAssociatedUsers(prev => [
+      ...prev.filter(a => a.role !== 'helpee'),
+      { role: 'helpee', users: authUser },
+    ])
+  }, [authUser, isEdit, isHelpee])
+
+  // Supervisor creating a job: auto-assign themselves as supervisor
+  useEffect(() => {
+    if (!authUser || isEdit || !isSupervisor) return
+    setSupervisor(authUser)
+    setAssociatedUsers(prev => {
+      if (prev.some(a => a.role === 'supervisor')) return prev
+      return [...prev, { role: 'supervisor', users: authUser }]
+    })
+  }, [authUser, isEdit, isSupervisor])
 
   useEffect(() => {
     getJobSpecs().then(setSpecs).catch(() => {})
@@ -235,7 +419,11 @@ export default function JobForm() {
     try {
       const qs = await getQuestionsForSpec(specId)
       setQuestions(qs)
-      setAnswers(qs.map(q => ({ question_id: q.id, answer_text: '' })))
+      // Preserve answers already loaded from the job (edit / helpee / helper view)
+      setAnswers(prev => qs.map(q => {
+        const hit = prev.find(a => a.question_id === q.id)
+        return { question_id: q.id, answer_text: hit?.answer_text ?? '' }
+      }))
       const spec = specs.find(s => s.id === specId)
       setSelectedSpec(spec || null)
     } catch { setQuestions([]) }
@@ -246,12 +434,19 @@ export default function JobForm() {
   useEffect(() => {
     if (!isEdit) return
     getJobById(id).then(job => {
-      const jc = job.job_category === JOB_CATEGORIES.FREQUENT ? JOB_CATEGORIES.FREQUENT : JOB_CATEGORIES.ONETIME
+      const catRaw = job.job_category ? String(job.job_category).toLowerCase() : ''
+      const jc = catRaw === 'frequent' ? JOB_CATEGORIES.FREQUENT : JOB_CATEGORIES.ONETIME
       setCategory(jc)
+      const spec = job.job_specifications
+      const typeName = spec && typeof spec === 'object' && !Array.isArray(spec)
+        ? spec.job_type_name
+        : (Array.isArray(spec) ? spec[0]?.job_type_name : '')
+      setLoadedJobTypeName(typeName || '')
       setForm({
         job_name: job.job_name || '',
         job_description: job.job_description || '',
         job_type_id: job.job_type_id || '',
+        job_notes: job.job_notes || '',
         job_date: job.job_date || '',
         job_start_time: job.job_start_time || '',
         job_from_date: job.job_from_date || '',
@@ -274,8 +469,13 @@ export default function JobForm() {
       const assoc = job.associated_users || []
       setAssociatedUsers(assoc)
       setHelpee(assoc.find(a => a.role === 'helpee')?.users || null)
-      setHelper(assoc.find(a => a.role === 'helper')?.users || null)
+      setHelpers(assoc.filter(a => a.role === 'helper').map(a => a.users).filter(Boolean))
       setSupervisor(assoc.find(a => a.role === 'supervisor')?.users || null)
+
+      prevHelperIdsRef.current = assoc
+        .filter(a => a.role === 'helper')
+        .map(a => a.users?.id)
+        .filter(Boolean)
 
       if (job.invoice) setInvoice(job.invoice)
 
@@ -294,33 +494,67 @@ export default function JobForm() {
 
   const handleUserSelected = (user) => {
     const assocEntry = { role: userPickerRole, users: user }
-    if (userPickerRole === 'helpee') { setHelpee(user); setAssociatedUsers(prev => [...prev.filter(a => a.role !== 'helpee'), assocEntry]) }
-    else if (userPickerRole === 'helper') { setHelper(user); setAssociatedUsers(prev => [...prev.filter(a => a.role !== 'helper'), assocEntry]) }
-    else if (userPickerRole === 'supervisor') { setSupervisor(user); setAssociatedUsers(prev => [...prev.filter(a => a.role !== 'supervisor'), assocEntry]) }
+    if (userPickerRole === 'helpee') {
+      setHelpee(user)
+      setAssociatedUsers(prev => [...prev.filter(a => a.role !== 'helpee'), assocEntry])
+    } else if (userPickerRole === 'helper') {
+      // Only add if not already in the list
+      if (!helpers.find(h => h.id === user.id)) {
+        setHelpers(prev => [...prev, user])
+        setAssociatedUsers(prev => [...prev, assocEntry])
+      }
+    } else if (userPickerRole === 'supervisor') {
+      setSupervisor(user)
+      setAssociatedUsers(prev => [...prev.filter(a => a.role !== 'supervisor'), assocEntry])
+    }
     setUserPickerRole(null)
+  }
+
+  const removeHelper = async (userId) => {
+    try {
+      if (isEdit && dbJobId) await removeAssociatedUser(dbJobId, userId)
+      setHelpers(prev => prev.filter(h => h.id !== userId))
+      setAssociatedUsers(prev => prev.filter(a => !(a.role === 'helper' && a.users?.id === userId)))
+    } catch (e) { setError(e.message) }
   }
 
   const handleSave = async () => {
     if (!form.job_name.trim()) { setError('Job Name is required'); return }
     if (category === JOB_CATEGORIES.ONETIME && !form.job_date) { setError('Job Date is required'); return }
     if (category === JOB_CATEGORIES.FREQUENT && (!form.job_from_date || !form.job_to_date)) { setError('Start and End Date are required'); return }
+
+    // ── Associated-user validation (new jobs only) ─────────────────
+    if (!isEdit) {
+      if (isSupervisor || isAdmin) {
+        if (!helpee) { setError('Please select a Helpee for this job.'); return }
+        if (helpers.length === 0) { setError('Please assign at least one Helper to this job.'); return }
+      }
+      if (isAdmin && !supervisor) { setError('Please assign a Supervisor to this job.'); return }
+    }
+
     setSaving(true)
     setError('')
     try {
       const assocUsers = {
         helpee_id: helpee?.id,
-        helper_ids: helper ? [helper.id] : [],
+        helper_ids: helpers.map(h => h.id),
         supervisor_id: supervisor?.id,
       }
       if (isEdit) {
+        const prevHelpers = prevHelperIdsRef.current
         await updateJob(dbJobId, { ...form, job_category: category }, answers)
         if (helpee) await upsertAssociatedUser(dbJobId, helpee.id, 'helpee')
-        if (helper) await upsertAssociatedUser(dbJobId, helper.id, 'helper')
+        for (const h of helpers) await upsertAssociatedUser(dbJobId, h.id, 'helper')
         if (supervisor) await upsertAssociatedUser(dbJobId, supervisor.id, 'supervisor')
+        const newHelperIds = helpers.map(h => h.id).filter(id => !prevHelpers.includes(id))
+        if (canManage && newHelperIds.length > 0) {
+          await notifyHelpersAssignedToJob(dbJobId, newHelperIds, form.job_name)
+        }
+        prevHelperIdsRef.current = helpers.map(h => h.id)
       } else {
-        await createJob({ ...form, job_category: category }, answers, assocUsers)
+        await createJob({ ...form, job_category: category }, answers, assocUsers, role)
       }
-      navigate('/admin/manage-jobs')
+      navigate(jobsHubPath(role))
     } catch (e) {
       setError(e.message)
     } finally {
@@ -346,6 +580,7 @@ export default function JobForm() {
         attendance_date: row.attendance_date,
         check_in_time: row.check_in_time,
         check_out_time: row.check_out_time,
+        remark: row.remark || null,
         att_status: 'pending_approval',
         submitted_at: new Date().toISOString(),
         resubmitted_at: row.att_status === 'rejected' ? new Date().toISOString() : null,
@@ -371,7 +606,7 @@ export default function JobForm() {
   }
 
   const isFrequent = category === JOB_CATEGORIES.FREQUENT
-  const isReadOnly = isHelpee || (isHelper && !isEdit)
+  const isJobFieldsReadOnly = (isHelpee || isHelper) && isEdit
   const jobTitle = isFrequent ? 'Job (Frequent Job)' : 'Job (One-Time Job)'
   const inputClass = 'form-cell flex-1 w-full outline-none text-sm'
   const isHourly = form.pricing_structure === 'hourly'
@@ -405,36 +640,56 @@ export default function JobForm() {
                 <div className="form-cell flex-1 text-sm text-hh-placeholder">{jobId}</div>
               </FormRow>
               <FormRow label="Job Type" labelWidth="w-40">
-                <select className={inputClass} value={form.job_type_id}
-                  onChange={e => setField('job_type_id', e.target.value)} disabled={isReadOnly}>
-                  <option value="">-- Select Job Type --</option>
-                  {specs.map(s => <option key={s.id} value={s.id}>{s.job_type_name}</option>)}
-                </select>
+                {isJobFieldsReadOnly ? (
+                  <div className="form-cell flex-1 text-sm">
+                    {loadedJobTypeName || selectedSpec?.job_type_name || specs.find(s => s.id === form.job_type_id)?.job_type_name || '—'}
+                  </div>
+                ) : (
+                  <select className={inputClass} value={form.job_type_id}
+                    onChange={e => setField('job_type_id', e.target.value)}>
+                    <option value="">-- Select Job Type --</option>
+                    {specs.map(s => <option key={s.id} value={s.id}>{s.job_type_name}</option>)}
+                  </select>
+                )}
               </FormRow>
               <FormRow label="Job Name" labelWidth="w-40">
                 <input className={inputClass} value={form.job_name}
-                  onChange={e => setField('job_name', e.target.value)} placeholder="Job Name" readOnly={isReadOnly} />
+                  onChange={e => setField('job_name', e.target.value)} placeholder="Job Name" readOnly={isJobFieldsReadOnly} />
               </FormRow>
               <FormRow label="Job Description" labelWidth="w-40">
                 <textarea className="form-cell flex-1 w-full outline-none text-sm h-16 resize-none py-2"
                   value={form.job_description} onChange={e => setField('job_description', e.target.value)}
-                  placeholder="Description" readOnly={isReadOnly} />
+                  placeholder="Description" readOnly={isJobFieldsReadOnly} />
               </FormRow>
+
+              {/* Frequent: show date range in first column so dates are always visible */}
+              {isFrequent && (
+                <>
+                  <FormRow label="Start Date" labelWidth="w-40">
+                    <input type="date" className={inputClass} value={form.job_from_date}
+                      onChange={e => setField('job_from_date', e.target.value)} readOnly={isJobFieldsReadOnly} />
+                  </FormRow>
+                  <FormRow label="End Date" labelWidth="w-40">
+                    <input type="date" className={inputClass} value={form.job_to_date}
+                      onChange={e => setField('job_to_date', e.target.value)} readOnly={isJobFieldsReadOnly} />
+                  </FormRow>
+                </>
+              )}
 
               {/* ── ONE-TIME: single date + time ── */}
               {!isFrequent && (
                 <>
                   <FormRow label="Job Date" labelWidth="w-40">
                     <input type="date" className={inputClass} value={form.job_date}
-                      onChange={e => setField('job_date', e.target.value)} readOnly={isReadOnly} />
+                      onChange={e => setField('job_date', e.target.value)} readOnly={isJobFieldsReadOnly} />
                   </FormRow>
                   <FormRow label="Job Time" labelWidth="w-40">
                     <input type="time" className={inputClass} value={form.job_start_time}
-                      onChange={e => setField('job_start_time', e.target.value)} readOnly={isReadOnly} />
+                      onChange={e => setField('job_start_time', e.target.value)} readOnly={isJobFieldsReadOnly} />
                   </FormRow>
                   <FormRow label="Job Location" labelWidth="w-40">
                     <input className={inputClass} value={form.job_location}
-                      onChange={e => setField('job_location', e.target.value)} placeholder="Location" readOnly={isReadOnly} />
+                      onChange={e => setField('job_location', e.target.value)} placeholder="Location" readOnly={isJobFieldsReadOnly} />
                   </FormRow>
                   <FormRow label="Job Requester" labelWidth="w-40">
                     <div className="form-cell flex-1 text-sm text-hh-placeholder">{dbUser?.user_name || 'Current User'}</div>
@@ -446,25 +701,17 @@ export default function JobForm() {
             {/* ── FREQUENT: date range + times + pricing ── */}
             {isFrequent && (
               <div className="space-y-2">
-                <FormRow label="Start Date" labelWidth="w-40">
-                  <input type="date" className={inputClass} value={form.job_from_date}
-                    onChange={e => setField('job_from_date', e.target.value)} readOnly={isReadOnly} />
-                </FormRow>
-                <FormRow label="End Date" labelWidth="w-40">
-                  <input type="date" className={inputClass} value={form.job_to_date}
-                    onChange={e => setField('job_to_date', e.target.value)} readOnly={isReadOnly} />
-                </FormRow>
                 <FormRow label="Job Start Time" labelWidth="w-40">
                   <input type="time" className={inputClass} value={form.job_start_time}
-                    onChange={e => setField('job_start_time', e.target.value)} readOnly={isReadOnly} />
+                    onChange={e => setField('job_start_time', e.target.value)} readOnly={isJobFieldsReadOnly} />
                 </FormRow>
                 <FormRow label="Job End Time" labelWidth="w-40">
                   <input type="time" className={inputClass} value={form.job_end_time}
-                    onChange={e => setField('job_end_time', e.target.value)} readOnly={isReadOnly} />
+                    onChange={e => setField('job_end_time', e.target.value)} readOnly={isJobFieldsReadOnly} />
                 </FormRow>
                 <FormRow label="Job Location" labelWidth="w-40">
                   <input className={inputClass} value={form.job_location}
-                    onChange={e => setField('job_location', e.target.value)} placeholder="Location" readOnly={isReadOnly} />
+                    onChange={e => setField('job_location', e.target.value)} placeholder="Location" readOnly={isJobFieldsReadOnly} />
                 </FormRow>
                 <FormRow label="Job Requester" labelWidth="w-40">
                   <div className="form-cell flex-1 text-sm text-hh-placeholder">{dbUser?.user_name || 'Current User'}</div>
@@ -478,7 +725,7 @@ export default function JobForm() {
                         <button
                           key={opt.val}
                           type="button"
-                          onClick={() => !isReadOnly && setField('pricing_structure', opt.val)}
+                          onClick={() => !isJobFieldsReadOnly && setField('pricing_structure', opt.val)}
                           className={`px-4 py-1.5 rounded-hh text-sm font-medium border-2 transition-colors
                             ${form.pricing_structure === opt.val
                               ? 'bg-hh-green text-white border-hh-green'
@@ -493,6 +740,14 @@ export default function JobForm() {
               </div>
             )}
           </div>
+
+          <FormRow label="Remark / notes" labelWidth="w-40">
+            <textarea className="form-cell flex-1 w-full outline-none text-sm h-20 resize-none py-2 mt-1"
+              value={form.job_notes}
+              onChange={e => setField('job_notes', e.target.value)}
+              placeholder="Optional notes visible to everyone on this job (e.g. access instructions)"
+              readOnly={!canManage} />
+          </FormRow>
         </section>
 
         {/* ── JOB SPECIFIC QUESTIONS ────────────────── */}
@@ -503,7 +758,7 @@ export default function JobForm() {
               {questions.map((q, i) => (
                 <FormRow key={q.id} label={q.question_text} labelWidth="w-48">
                   <input className={inputClass} value={answers[i]?.answer_text || ''}
-                    onChange={e => setAnswer(q.id, e.target.value)} placeholder="Enter Answer" readOnly={isReadOnly} />
+                    onChange={e => setAnswer(q.id, e.target.value)} placeholder="Enter Answer" readOnly={isJobFieldsReadOnly} />
                 </FormRow>
               ))}
             </div>
@@ -515,21 +770,53 @@ export default function JobForm() {
           <section>
             <h2 className="font-semibold text-base mb-3">Job Associated Users</h2>
             <div className="space-y-2">
-              {[
-                { role: 'helpee', user: helpee },
-                { role: 'helper', user: helper },
-                { role: 'supervisor', user: supervisor },
-              ].map(({ role, user }) => (
-                <div key={role} className="flex gap-2 items-center">
-                  <div className="form-label w-28 capitalize flex-shrink-0">{role}</div>
-                  <div className="form-cell flex-1 text-sm">
-                    {user ? user.user_name : <span className="text-hh-placeholder capitalize">{role} Name</span>}
-                  </div>
+              {/* Helpee */}
+              <div className="flex gap-2 items-center">
+                <div className="form-label w-28 capitalize flex-shrink-0">Helpee</div>
+                <div className="form-cell flex-1 text-sm">
+                  {helpee ? helpee.user_name : <span className="text-hh-placeholder">Helpee Name</span>}
+                </div>
+                {canManage && (
+                  <button onClick={() => setUserPickerRole('helpee')} className="btn-add w-9 h-9 flex-shrink-0" title="Add Helpee">⊕</button>
+                )}
+              </div>
+
+              {/* Helpers — multiple allowed */}
+              <div className="space-y-1">
+                <div className="flex gap-2 items-center">
+                  <div className="form-label w-28 flex-shrink-0">Helper(s)</div>
+                  <div className="flex-1" />
                   {canManage && (
-                    <button onClick={() => setUserPickerRole(role)} className="btn-add w-9 h-9 flex-shrink-0" title={`Add ${role}`}>⊕</button>
+                    <button onClick={() => setUserPickerRole('helper')} className="btn-add w-9 h-9 flex-shrink-0" title="Add Helper">⊕</button>
                   )}
                 </div>
-              ))}
+                {helpers.length === 0 ? (
+                  <div className="flex gap-2 items-center">
+                    <div className="w-28 flex-shrink-0" />
+                    <div className="form-cell flex-1 text-sm text-hh-placeholder">No helpers assigned</div>
+                  </div>
+                ) : helpers.map(h => (
+                  <div key={h.id} className="flex gap-2 items-center">
+                    <div className="w-28 flex-shrink-0" />
+                    <div className="form-cell flex-1 text-sm">{h.user_name}</div>
+                    {canManage && (
+                      <button onClick={() => removeHelper(h.id)}
+                        className="btn-icon w-9 h-9 flex-shrink-0 hover:text-hh-error" title="Remove Helper">✕</button>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* Supervisor */}
+              <div className="flex gap-2 items-center">
+                <div className="form-label w-28 capitalize flex-shrink-0">Supervisor</div>
+                <div className="form-cell flex-1 text-sm">
+                  {supervisor ? supervisor.user_name : <span className="text-hh-placeholder">Supervisor Name</span>}
+                </div>
+                {canManage && (
+                  <button onClick={() => setUserPickerRole('supervisor')} className="btn-add w-9 h-9 flex-shrink-0" title="Add Supervisor">⊕</button>
+                )}
+              </div>
             </div>
           </section>
 
@@ -549,39 +836,70 @@ export default function JobForm() {
                   <p><span className="font-medium">Amount:</span> {invoice.invoice_currency} {invoice.invoice_amount}</p>
                   <p><span className="font-medium">Status:</span> <span className="capitalize">{invoice.invoice_status}</span></p>
                   {invoice.invoice_notes && <p><span className="font-medium">Notes:</span> {invoice.invoice_notes}</p>}
+                  {invoice.attachment_url && (
+                    <p>
+                      <span className="font-medium">Attachment:</span>{' '}
+                      <a href={invoice.attachment_url} target="_blank" rel="noreferrer"
+                        className="text-hh-green underline">View file ↗</a>
+                    </p>
+                  )}
                 </div>
               )}
             </section>
           )}
         </div>
 
-        {/* ── VIEW REMARK ───────────────────────────── */}
-        {isEdit && (
-          <div className="flex justify-end">
-            <button onClick={() => navigate(`/helpee/jobs/${dbJobId}/remark`)} className="btn-select px-5 text-sm">
-              View Remark
-            </button>
+        {/* ── JOB MESSAGE + VIEW REMARK ─────────────── */}
+        {(canUseJobMessages || isEdit) && (
+          <div className="flex flex-col items-end gap-2">
+            {canUseJobMessages && (
+              <button
+                type="button"
+                disabled={!dbJobId}
+                title={!dbJobId ? 'Save the job first to send messages' : ''}
+                onClick={() => dbJobId && setShowJobMessageModal(true)}
+                className="btn-select px-5 text-sm bg-hh-green text-white border-hh-green hover:opacity-90 disabled:opacity-45 disabled:cursor-not-allowed"
+              >
+                Job message
+              </button>
+            )}
+            {isEdit && (
+              <button
+                type="button"
+                onClick={() => navigate(`/jobs/${dbJobId}/remark`)}
+                className="btn-select px-5 text-sm"
+              >
+                View Remark
+              </button>
+            )}
           </div>
         )}
 
         {/* ── ACTION BUTTONS ────────────────────────── */}
-        {isEdit && canManage && (
+        {isEdit && (canManage || isHelper) && (
           <section>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               {[
-                { label: 'Job Started', newStatus: 'job_started' },
-                { label: 'Job Complete', newStatus: 'job_finished' },
-                ...(!isHelper ? [
+                { label: 'Job Started',       newStatus: 'job_started' },
+                { label: 'Job Finished',      newStatus: 'job_finished' },
+                ...(canManage ? [
                   { label: 'Payment Confirmed', newStatus: 'payment_confirmed' },
-                  { label: 'Job Close', newStatus: 'job_closed' },
+                  { label: 'Job Close',         newStatus: 'job_closed' },
                 ] : []),
-              ].map(({ label, newStatus }) => (
-                <button key={newStatus} onClick={() => setStatusConfirm({ label, newStatus })}
-                  disabled={status === newStatus}
-                  className={`btn-action ${status === newStatus ? 'opacity-50 cursor-not-allowed' : ''}`}>
-                  {label}
-                </button>
-              ))}
+              ].map(({ label, newStatus }) => {
+                const allowed = canTransitionTo(status, newStatus)
+                return (
+                  <button
+                    key={newStatus}
+                    onClick={() => allowed && setStatusConfirm({ label, newStatus })}
+                    disabled={!allowed}
+                    title={!allowed ? 'Cannot go back to a previous status' : undefined}
+                    className={`btn-action ${!allowed ? 'opacity-40 cursor-not-allowed' : ''}`}
+                  >
+                    {label}
+                  </button>
+                )
+              })}
             </div>
           </section>
         )}
@@ -607,19 +925,24 @@ export default function JobForm() {
             ) : (
               <>
                 <div className="overflow-x-auto">
-                  <table className="w-full min-w-[900px] text-xs border-collapse">
+                  <table className="w-full min-w-[1040px] text-xs border-collapse">
                     <thead>
                       <tr>
-                        {['Date', 'Sched. Start', 'Sched. End', 'Check In', 'Check Out', 'Hrs',
+                        {['Date', 'Sched. Start', 'Sched. End', 'Check In', 'Check Out', 'Remark', 'Hrs',
                           isHourly ? 'Rate/Hr' : 'Rate/Day',
                           isHourly ? 'Amount' : '',
                           'Status', 'Action'
                         ].filter(Boolean).map(h => (
-                          <th key={h} className="table-header rounded-none px-2 py-2 text-left font-medium">{h}</th>
+                          <th
+                            key={h}
+                            className="border-b-2 border-hh-green/40 bg-hh-mint/60 px-2 py-2.5 text-left text-xs font-semibold text-hh-text whitespace-nowrap align-middle"
+                          >
+                            {h}
+                          </th>
                         ))}
                       </tr>
                     </thead>
-                    <tbody className="space-y-1">
+                    <tbody>
                       {attSlice.map(row => {
                         const isRejected = row.att_status === 'rejected'
                         const isPending  = row.att_status === 'pending_approval' || row.att_status === 'resubmitted'
@@ -647,6 +970,14 @@ export default function JobForm() {
                                     value={row.check_out_time || ''}
                                     onChange={e => setAttRow(row.id, 'check_out_time', e.target.value)} />
                                 : <span>{row.check_out_time || '—'}</span>}
+                            </td>
+                            <td className="px-2 py-1.5 max-w-[140px]">
+                              {canEdit && !isApproved
+                                ? <input type="text" className="form-cell outline-none text-xs w-full min-w-0"
+                                    value={row.remark || ''}
+                                    placeholder="Note"
+                                    onChange={e => setAttRow(row.id, 'remark', e.target.value)} />
+                                : <span className="break-words">{row.remark || '—'}</span>}
                             </td>
                             <td className="px-2 py-1.5">{row.total_hours != null ? Number(row.total_hours).toFixed(2) : '—'}</td>
                             <td className="px-2 py-1.5">
@@ -723,13 +1054,19 @@ export default function JobForm() {
         )}
 
         {/* ── SAVE / UPDATE buttons ───────────────── */}
-        {canManage && (
+        {(canManage || (!isEdit && isHelpee)) ? (
           <div className="flex gap-3">
-            <button onClick={handleSave} disabled={saving} className="btn-action px-10">
+            <button type="button" onClick={handleSave} disabled={saving} className="btn-action px-10">
               {saving ? 'Saving...' : isEdit ? 'Save Changes' : 'Create Job'}
             </button>
-            <button onClick={() => navigate('/admin/manage-jobs')} className="btn-filter">
+            <button type="button" onClick={() => navigate(jobsHubPath(role))} className="btn-filter">
               {isEdit ? 'Back' : 'Cancel'}
+            </button>
+          </div>
+        ) : (
+          <div className="flex gap-3">
+            <button type="button" onClick={() => navigate(jobsHubPath(role))} className="btn-filter px-8">
+              ← Back to Jobs
             </button>
           </div>
         )}
@@ -755,6 +1092,13 @@ export default function JobForm() {
             <p><span className="font-medium">Date:</span> {invoice.invoice_date || '—'}</p>
             <p><span className="font-medium">Status:</span> <span className="capitalize">{invoice.invoice_status}</span></p>
             {invoice.invoice_notes && <p><span className="font-medium">Notes:</span> {invoice.invoice_notes}</p>}
+            {invoice.attachment_url && (
+              <p>
+                <span className="font-medium">Attachment:</span>{' '}
+                <a href={invoice.attachment_url} target="_blank" rel="noreferrer"
+                  className="text-hh-green underline">View file ↗</a>
+              </p>
+            )}
           </div>
         </div>
       )}
@@ -767,6 +1111,15 @@ export default function JobForm() {
         <RejectModal
           onConfirm={(reason) => handleRejectRow(rejectTarget, reason)}
           onClose={() => setRejectTarget(null)} />
+      )}
+      {showJobMessageModal && dbJobId && canUseJobMessages && (
+        <JobMessageModal
+          jobId={dbJobId}
+          open={showJobMessageModal}
+          onClose={() => setShowJobMessageModal(false)}
+          authUser={authUser}
+          authorRole={jobMessageAuthorRole}
+        />
       )}
     </MainLayout>
   )

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import MainLayout from '../../layouts/MainLayout'
 import { useAuth } from '../../contexts/AuthContext'
+import { jobSpecsHubPath } from '../../constants/jobPaths'
 import { getJobSpecById, createJobSpec, updateJobSpec } from '../../services/jobSpecService'
 import FormRow from '../../components/FormRow'
 import LoadingSpinner from '../../components/LoadingSpinner'
@@ -10,7 +11,7 @@ import ErrorBanner from '../../components/ErrorBanner'
 export default function JobSpecForm() {
   const navigate = useNavigate()
   const { id } = useParams()
-  const { isAdmin, isSupervisor } = useAuth()
+  const { isAdmin, isSupervisor, role } = useAuth()
   const isEdit = Boolean(id)
 
   const [specId, setSpecId] = useState('Auto-generated')
@@ -62,7 +63,7 @@ export default function JobSpecForm() {
       } else {
         await createJobSpec(specData, questions)
       }
-      navigate('/admin/job-specs')
+      navigate(jobSpecsHubPath(role))
     } catch (e) {
       setError(e.message)
     } finally {
@@ -170,7 +171,7 @@ export default function JobSpecForm() {
           <button onClick={handleSave} disabled={saving} className="btn-action px-8">
             {saving ? 'Saving...' : 'Save'}
           </button>
-          <button onClick={() => navigate('/admin/job-specs')} className="btn-filter">Cancel</button>
+          <button onClick={() => navigate(jobSpecsHubPath(role))} className="btn-filter">Cancel</button>
         </div>
       </div>
     </MainLayout>

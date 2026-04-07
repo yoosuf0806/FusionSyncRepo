@@ -2,6 +2,9 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { getUnreadCount } from '../services/notificationService'
+import {
+  jobsHubPath, usersHubPath, jobSpecsHubPath,
+} from '../constants/jobPaths'
 
 const BellIcon = () => (
   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -44,20 +47,39 @@ export default function MainLayout({ children, title }) {
   const [showUserMenu, setShowUserMenu] = useState(false)
   const navigate = useNavigate()
   const location = useLocation()
-  const { role, isAdmin, isSupervisor, isHelper, signOut, user: authUser } = useAuth()
+  const { isAdmin, isSupervisor, isHelper, isHelpee, signOut, user: authUser } = useAuth()
 
-  const homePath = isAdmin || isSupervisor ? '/admin/home'
-    : isHelper ? '/helper/home'
+  const role = isAdmin ? 'admin' : isSupervisor ? 'supervisor' : isHelper ? 'helper' : 'helpee'
+
+  const homePath = isAdmin        ? '/admin/home'
+    : isSupervisor  ? '/supervisor/home'
+    : isHelper      ? '/helper/home'
     : '/helpee/home'
 
   const navItems = [
-    { label: 'Manage Users',             path: '/admin/manage-users', show: isAdmin || isSupervisor },
-    { label: 'Manage Jobs',              path: '/admin/manage-jobs',  show: true },
-    { label: 'Manage Job Specifications',path: '/admin/job-specs',    show: isAdmin || isSupervisor },
-    { label: 'Manage Setup',             path: '/admin/setup',        show: isAdmin },
+    { label: 'Manage Users',              path: usersHubPath(role),    show: isAdmin || isSupervisor },
+    { label: 'Manage Jobs',               path: jobsHubPath(role),     show: true },
+    { label: 'Manage Job Specifications', path: jobSpecsHubPath(role), show: isAdmin || isSupervisor },
+    { label: 'Manage Setup',              path: '/admin/setup',        show: isAdmin },
   ].filter(item => item.show)
 
-  const isActive = (path) => location.pathname.startsWith(path)
+  const navItemActive = (item) => {
+    if (item.label === 'Manage Jobs') {
+      if (isHelpee)     return location.pathname === '/helpee/home'     || location.pathname.startsWith('/helpee/jobs')
+      if (isHelper)     return location.pathname.startsWith('/helper/manage-jobs') || location.pathname.startsWith('/helper/jobs')
+      if (isSupervisor) return location.pathname.startsWith('/supervisor/manage-jobs') || location.pathname.startsWith('/supervisor/jobs')
+      return location.pathname.startsWith('/admin/manage-jobs') || location.pathname.startsWith('/admin/jobs')
+    }
+    if (item.label === 'Manage Users') {
+      if (isSupervisor) return location.pathname.startsWith('/supervisor/manage-users') || location.pathname.startsWith('/supervisor/users')
+      return location.pathname.startsWith('/admin/manage-users') || location.pathname.startsWith('/admin/users')
+    }
+    if (item.label === 'Manage Job Specifications') {
+      if (isSupervisor) return location.pathname.startsWith('/supervisor/job-specs')
+      return location.pathname.startsWith('/admin/job-specs')
+    }
+    return location.pathname.startsWith(item.path)
+  }
 
   // Load unread notification count — authUser from context is already the DB user record
   useEffect(() => {
@@ -99,11 +121,11 @@ export default function MainLayout({ children, title }) {
           <nav className="flex flex-col gap-3 px-3 mt-2 flex-1">
             {navItems.map(item => (
               <button
-                key={item.path}
+                key={item.label}
                 onClick={() => { navigate(item.path); setSidebarOpen(false) }}
                 className={`
                   w-full px-3 py-2.5 rounded-pill text-sm font-medium text-center transition-colors
-                  ${isActive(item.path)
+                  ${navItemActive(item)
                     ? 'bg-hh-sidebar text-white border border-white/30'
                     : 'bg-white text-hh-text hover:bg-gray-100'}
                 `}
@@ -139,6 +161,21 @@ export default function MainLayout({ children, title }) {
 
         {/* Top Header */}
         <header className="flex items-center gap-3 px-4 py-3 bg-hh-mint sticky top-0 z-10">
+
+          {/* Logo — navigates to role home */}
+          <button
+            onClick={() => navigate(homePath)}
+            title="Go to Home"
+            className="flex-shrink-0 flex items-center gap-2 group"
+          >
+            <div className="w-9 h-9 rounded-full bg-hh-sidebar flex items-center justify-center shadow-sm group-hover:opacity-90 transition-opacity">
+              <span className="text-white text-xs font-bold leading-none tracking-tight">HH</span>
+            </div>
+            <span className="hidden md:block text-hh-sidebar text-xs font-semibold leading-tight">
+              Helping<br />Hands
+            </span>
+          </button>
+
           <div className="flex-1 flex justify-center">
             <div className="page-title-bar min-w-[200px] px-10">
               <span className="text-base font-medium">{title}</span>
@@ -147,15 +184,6 @@ export default function MainLayout({ children, title }) {
 
           {/* Right buttons */}
           <div className="flex items-center gap-2 flex-shrink-0">
-            {/* Home button */}
-            <button
-              onClick={() => navigate(homePath)}
-              className="btn-icon"
-              title="Home"
-            >
-              <HomeIcon />
-            </button>
-
             {/* Notification bell */}
             <button
               onClick={() => navigate('/notifications')}

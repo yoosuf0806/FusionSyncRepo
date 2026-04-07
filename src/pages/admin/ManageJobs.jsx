@@ -9,6 +9,7 @@ import LoadingSpinner from '../../components/LoadingSpinner'
 import EmptyState from '../../components/EmptyState'
 import ErrorBanner from '../../components/ErrorBanner'
 import { JOB_STATUS_LABELS } from '../../constants/jobStatuses'
+import { jobDetailPath, jobNewPath } from '../../constants/jobPaths'
 
 const STATUS_FILTERS = ['pending', 'ongoing', 'completed']
 
@@ -27,7 +28,7 @@ const TrashIcon = () => (
 
 export default function ManageJobs() {
   const navigate = useNavigate()
-  const { user: authUser, isAdmin, isSupervisor, isHelper, isHelpee } = useAuth()
+  const { user: authUser, role, isAdmin, isSupervisor, isHelper, isHelpee } = useAuth()
   const [jobs, setJobs] = useState([])
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
@@ -107,7 +108,7 @@ export default function ManageJobs() {
           </div>
         )}
 
-        {canManage && (
+        {(canManage || isHelpee) && (
           <button onClick={() => setShowTypeModal(true)} className="btn-add" title="Add Job">
             ⊕
           </button>
@@ -129,7 +130,12 @@ export default function ManageJobs() {
           ) : (
             jobs.map(job => (
               <div key={job.id} className="grid grid-cols-[110px_1fr_130px_140px_110px_110px] gap-2">
-                <div className="table-row rounded-hh-lg px-2 text-xs">{job.job_id}</div>
+                <div
+                  className="table-row rounded-hh-lg px-2 text-xs text-hh-green underline cursor-pointer hover:opacity-80"
+                  onClick={() => navigate(jobDetailPath(role, job.id))}
+                >
+                  {job.job_id}
+                </div>
                 <div className="table-row rounded-hh-lg px-2 text-xs">{job.job_name}</div>
                 <div className="table-row rounded-hh-lg px-2 text-xs">
                   {job.job_specifications?.job_type_name || '—'}
@@ -142,7 +148,7 @@ export default function ManageJobs() {
                 </div>
                 <div className="table-row rounded-hh-lg px-2 gap-1">
                   <button
-                    onClick={() => navigate(`/admin/jobs/${job.id}`)}
+                    onClick={() => navigate(jobDetailPath(role, job.id))}
                     className="btn-icon w-8 h-8"
                     title="View/Edit"
                   >
@@ -179,13 +185,13 @@ export default function ManageJobs() {
             <h2 className="text-lg font-semibold text-center text-hh-text">Select Job Type</h2>
             <div className="flex gap-4 justify-center">
               <button
-                onClick={() => { setShowTypeModal(false); navigate('/admin/jobs/new', { state: { category: 'one-time' } }) }}
+                onClick={() => { setShowTypeModal(false); navigate(jobNewPath(role), { state: { category: 'one-time' } }) }}
                 className="flex-1 py-4 bg-white text-hh-text font-medium rounded-hh border-2 border-hh-green hover:bg-hh-green hover:text-white transition-colors"
               >
                 One-Time Job
               </button>
               <button
-                onClick={() => { setShowTypeModal(false); navigate('/admin/jobs/new', { state: { category: 'frequent' } }) }}
+                onClick={() => { setShowTypeModal(false); navigate(jobNewPath(role), { state: { category: 'frequent' } }) }}
                 className="flex-1 py-4 bg-white text-hh-text font-medium rounded-hh border-2 border-hh-green hover:bg-hh-green hover:text-white transition-colors"
               >
                 Frequent Job

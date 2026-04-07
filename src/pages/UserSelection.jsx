@@ -36,6 +36,13 @@ export default function UserSelection() {
       {/* Role buttons */}
       <div className="flex flex-col gap-4 w-full max-w-[260px]">
         <button
+          onClick={() => navigate('/login/helpee')}
+          className="btn-login"
+        >
+          Login as Helpee
+        </button>
+
+        <button
           onClick={() => navigate('/login/helper')}
           className="btn-login"
         >

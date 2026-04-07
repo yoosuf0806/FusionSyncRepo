@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { supabase } from '../supabase/client'
+import { normalizeLoginEmail } from './authService'
 
 // Admin client using service role key. Works when the key is a legacy JWT (eyJ...).
 // If VITE_SUPABASE_SERVICE_ROLE_KEY is set to a legacy JWT (from Supabase dashboard →
@@ -64,15 +65,16 @@ export async function getUserByAuthId(authId) {
 }
 
 export async function createUser(userData, password) {
-  const email = userData.user_email?.trim()
-  if (!email) throw new Error('Email address is required')
+  const contactEmail = userData.user_email?.trim() || null
+  // Auth email is always username-based so username login always works
+  const authEmail = normalizeLoginEmail(userData.user_name)
 
   let authUserId
 
   if (adminClient) {
     // Path A: legacy JWT service role key available — use admin API (no rate limits, no email confirm needed)
     const { data: authData, error: authError } = await adminClient.auth.admin.createUser({
-      email,
+      email: authEmail,
       password,
       email_confirm: true,
       user_metadata: { username: userData.user_name, role: userData.user_type },
@@ -82,7 +84,7 @@ export async function createUser(userData, password) {
   } else {
     // Path B: fallback — use anon signUp (requires email confirmation DISABLED in Supabase Auth settings)
     const { data: authData, error: authError } = await signupClient.auth.signUp({
-      email,
+      email: authEmail,
       password,
       options: { data: { username: userData.user_name, role: userData.user_type } },
     })
@@ -96,7 +98,7 @@ export async function createUser(userData, password) {
   const { data, error } = await supabase.from('users').insert({
     auth_user_id: authUserId,
     user_name: userData.user_name,
-    user_email: email,
+    user_email: contactEmail,
     user_type: userData.user_type,
     user_phone: userData.user_phone || null,
     user_location: userData.user_location || null,
@@ -110,8 +112,9 @@ export async function createUser(userData, password) {
   // Send welcome notification — ignore errors so user creation still succeeds
   await supabase.from('notifications').insert({
     recipient_user_id: data.id,
+    title: 'Welcome',
     message: `Welcome to Helping Hands, ${userData.user_name}! Your account has been created as ${userData.user_type}.`,
-    notification_type: 'system',
+    notification_type: 'general',
     is_read: false,
     delivery_channels: ['in_app'],
   }).then(() => {}, () => {})
@@ -120,10 +123,20 @@ export async function createUser(userData, password) {
 }
 
 export async function updateUser(id, userData) {
-  const { data, error } = await supabase
+  const { data: existing, error: fetchErr } = await supabase
+    .from('users')
+    .select('user_name, user_type, auth_user_id')
+    .eq('id', id)
+    .single()
+  if (fetchErr) throw fetchErr
+
+  // Use .select('id') instead of .select().single() to avoid "cannot coerce result"
+  // errors when the supervisor's RLS SELECT policy filters the RETURNING clause to 0 rows.
+  const { data: updatedRows, error } = await supabase
     .from('users')
     .update({
       user_name: userData.user_name,
+      user_email: userData.user_email?.trim() || null,
       user_phone: userData.user_phone || null,
       user_location: userData.user_location || null,
       department_id: userData.department_id || null,
@@ -131,10 +144,62 @@ export async function updateUser(id, userData) {
       user_type: userData.user_type,
     })
     .eq('id', id)
-    .select()
-    .single()
+    .select('id')
   if (error) throw error
+  if (!updatedRows || updatedRows.length === 0) {
+    throw new Error('Update failed — record not found or you do not have permission to edit this user.')
+  }
+  const data = { id, ...userData }
+
+  const nameChanged = (userData.user_name || '').trim() !== (existing.user_name || '').trim()
+  const typeChanged = (userData.user_type || '') !== (existing.user_type || '')
+
+  if (!existing.auth_user_id || (!nameChanged && !typeChanged)) {
+    return data
+  }
+
+  if (nameChanged) {
+    if (!adminClient) {
+      throw new Error(
+        'Profile saved, but the login email (SSO) was not updated. Set VITE_SUPABASE_SERVICE_ROLE_KEY (legacy JWT service role) in .env.'
+      )
+    }
+    const { error: auErr } = await adminClient.auth.admin.updateUserById(existing.auth_user_id, {
+      email: normalizeLoginEmail(userData.user_name),
+      user_metadata: { username: userData.user_name, role: userData.user_type },
+    })
+    if (auErr) {
+      throw new Error(
+        `Profile saved, but Supabase Auth (SSO) could not be updated: ${auErr.message}. ` +
+          'Check VITE_SUPABASE_SERVICE_ROLE_KEY (legacy JWT service role).'
+      )
+    }
+  } else if (typeChanged && adminClient) {
+    const { error: metaErr } = await adminClient.auth.admin.updateUserById(existing.auth_user_id, {
+      user_metadata: { username: userData.user_name, role: userData.user_type },
+    })
+    if (metaErr) {
+      throw new Error(`Profile saved, but Auth metadata sync failed: ${metaErr.message}`)
+    }
+  }
+
   return data
+}
+
+export async function adminResetUserPassword(dbUserId, newPassword) {
+  const { data: user, error: fetchErr } = await supabase
+    .from('users')
+    .select('auth_user_id')
+    .eq('id', dbUserId)
+    .single()
+  if (fetchErr) throw fetchErr
+
+  if (!adminClient) throw new Error('Admin client not available. Service role key required.')
+
+  const { error } = await adminClient.auth.admin.updateUserById(user.auth_user_id, {
+    password: newPassword,
+  })
+  if (error) throw error
 }
 
 export async function deleteUser(id) {

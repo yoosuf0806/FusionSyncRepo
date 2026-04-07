@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import MainLayout from '../../layouts/MainLayout'
 import { useAuth } from '../../contexts/AuthContext'
-import { getUserById, createUser, updateUser } from '../../services/userService'
+import { usersHubPath } from '../../constants/jobPaths'
+import { getUserById, createUser, updateUser, adminResetUserPassword } from '../../services/userService'
 import { getDepartments } from '../../services/departmentService'
 import { getJobSpecs } from '../../services/jobSpecService'
 import FormRow from '../../components/FormRow'
@@ -15,7 +16,7 @@ const ADMIN_ONLY_TYPES = ['admin', 'supervisor']
 export default function UserForm() {
   const navigate = useNavigate()
   const { id } = useParams()
-  const { isAdmin } = useAuth()
+  const { isAdmin, role } = useAuth()
   const isEdit = Boolean(id)
 
   const [form, setForm] = useState({
@@ -30,6 +31,10 @@ export default function UserForm() {
   const [saving, setSaving] = useState(false)
   const [errors, setErrors] = useState({})
   const [apiError, setApiError] = useState('')
+  const [resetPw, setResetPw] = useState('')
+  const [resetSaving, setResetSaving] = useState(false)
+  const [resetSuccess, setResetSuccess] = useState(false)
+  const [resetError, setResetError] = useState('')
 
   useEffect(() => {
     const loadDropdowns = async () => {
@@ -66,17 +71,33 @@ export default function UserForm() {
   const set = (key, val) => {
     setForm(prev => ({ ...prev, [key]: val }))
     if (errors[key]) setErrors(prev => ({ ...prev, [key]: '' }))
+    if (apiError) setApiError('')
   }
 
   const validate = () => {
     const e = {}
     if (!form.user_name.trim()) e.user_name = 'Name is required'
-    if (!form.user_email.trim()) e.user_email = 'Email is required'
-    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.user_email)) e.user_email = 'Enter a valid email address'
+    if (form.user_email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.user_email)) e.user_email = 'Enter a valid email address'
     if (!isEdit && !form.password) e.password = 'Password is required for new users'
     if (!isEdit && form.password && form.password.length < 6) e.password = 'Password must be at least 6 characters'
     if (!form.department_id) e.department_id = 'Department is required'
     return e
+  }
+
+  const handleResetPassword = async () => {
+    if (!resetPw || resetPw.length < 6) { setResetError('Password must be at least 6 characters'); return }
+    setResetSaving(true)
+    setResetError('')
+    setResetSuccess(false)
+    try {
+      await adminResetUserPassword(id, resetPw)
+      setResetSuccess(true)
+      setResetPw('')
+    } catch (err) {
+      setResetError(err.message)
+    } finally {
+      setResetSaving(false)
+    }
   }
 
   const handleSave = async () => {
@@ -91,7 +112,7 @@ export default function UserForm() {
       } else {
         await createUser(form, form.password)
       }
-      navigate('/admin/manage-users')
+      navigate(usersHubPath(role))
     } catch (err) {
       setApiError(err.message)
     } finally {
@@ -143,20 +164,19 @@ export default function UserForm() {
         {errors.user_name && <p className="text-hh-error text-xs ml-52">{errors.user_name}</p>}
 
         {/* Email */}
-        <FormRow label="Email Address">
+        <FormRow label="Contact Email">
           <input
             type="email"
             className={inputClass('user_email')}
             value={form.user_email}
             onChange={e => set('user_email', e.target.value)}
-            placeholder="user@example.com"
-            disabled={isEdit}
+            placeholder="user@example.com (optional, for contact only)"
           />
         </FormRow>
         {errors.user_email && <p className="text-hh-error text-xs ml-52">{errors.user_email}</p>}
-        {isEdit && (
-          <p className="text-hh-placeholder text-xs ml-52">Email cannot be changed after account creation.</p>
-        )}
+        <p className="text-hh-placeholder text-xs ml-52">
+          Login uses username — this email is for contact records only.
+        </p>
 
         {/* Password (create only) */}
         {!isEdit && (
@@ -229,13 +249,38 @@ export default function UserForm() {
           </FormRow>
         )}
 
+        {/* Admin: Reset Password (edit mode only) */}
+        {isEdit && isAdmin && (
+          <div className="hh-card p-4 space-y-2 border border-orange-200 bg-orange-50">
+            <p className="text-sm font-medium text-orange-800">Reset User Password</p>
+            <div className="flex gap-2 items-center">
+              <input
+                type="password"
+                className="form-cell flex-1 outline-none text-sm"
+                placeholder="Enter new password (min 6 chars)"
+                value={resetPw}
+                onChange={e => { setResetPw(e.target.value); setResetError(''); setResetSuccess(false) }}
+              />
+              <button
+                onClick={handleResetPassword}
+                disabled={resetSaving}
+                className="btn-action px-4 text-sm"
+              >
+                {resetSaving ? 'Resetting...' : 'Reset'}
+              </button>
+            </div>
+            {resetError && <p className="text-hh-error text-xs">{resetError}</p>}
+            {resetSuccess && <p className="text-green-700 text-xs font-medium">Password reset successfully!</p>}
+          </div>
+        )}
+
         {/* Actions */}
         <div className="flex gap-3 pt-2">
           <button onClick={handleSave} disabled={saving} className="btn-action px-8">
             {saving ? 'Saving...' : 'Save'}
           </button>
           <button
-            onClick={() => navigate('/admin/manage-users')}
+            onClick={() => navigate(usersHubPath(role))}
             className="btn-filter"
           >
             Cancel

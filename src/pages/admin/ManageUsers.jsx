@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import MainLayout from '../../layouts/MainLayout'
 import { useAuth } from '../../contexts/AuthContext'
+import { userNewPath, userEditPath } from '../../constants/jobPaths'
 import { getUsers, deleteUser } from '../../services/userService'
 import SearchInput from '../../components/SearchInput'
 import ConfirmModal from '../../components/ConfirmModal'
@@ -27,7 +28,7 @@ const TrashIcon = () => (
 
 export default function ManageUsers() {
   const navigate = useNavigate()
-  const { isAdmin } = useAuth()
+  const { isAdmin, role } = useAuth()
   const [users, setUsers] = useState([])
   const [search, setSearch] = useState('')
   const [roleFilter, setRoleFilter] = useState('')
@@ -89,7 +90,7 @@ export default function ManageUsers() {
         {/* Add button */}
         {isAdmin && (
           <button
-            onClick={() => navigate('/admin/users/new')}
+            onClick={() => navigate(userNewPath(role))}
             className="btn-add"
             title="Add User"
           >
@@ -121,7 +122,7 @@ export default function ManageUsers() {
                 <div className="table-row rounded-hh-lg px-3 text-sm capitalize">{u.user_type}</div>
                 <div className="table-row rounded-hh-lg px-3 gap-2">
                   <button
-                    onClick={() => navigate(`/admin/users/${u.id}/edit`)}
+                    onClick={() => navigate(userEditPath(role, u.id))}
                     className="btn-icon w-8 h-8"
                     title="Edit"
                   >
