@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import MainLayout from '../../layouts/MainLayout'
 import { useAuth } from '../../contexts/AuthContext'
 import { usersHubPath } from '../../constants/jobPaths'
-import { getUserById, createUser, updateUser, adminResetUserPassword } from '../../services/userService'
+import { getUserById, createUser, updateUser, adminResetUserPassword, getUserJobTypes, saveUserJobTypes } from '../../services/userService'
 import { getDepartments } from '../../services/departmentService'
 import { getJobSpecs } from '../../services/jobSpecService'
 import FormRow from '../../components/FormRow'
@@ -35,6 +35,7 @@ export default function UserForm() {
   const [resetSaving, setResetSaving] = useState(false)
   const [resetSuccess, setResetSuccess] = useState(false)
   const [resetError, setResetError] = useState('')
+  const [selectedJobTypeIds, setSelectedJobTypeIds] = useState([])
 
   useEffect(() => {
     const loadDropdowns = async () => {
@@ -60,6 +61,8 @@ export default function UserForm() {
           password: '',
         })
         setUserId(user.user_id || 'Auto-generated')
+        // Load multiple job types from junction table
+        getUserJobTypes(id).then(ids => setSelectedJobTypeIds(ids)).catch(() => {})
         setLoading(false)
       }).catch(e => {
         setApiError(e.message)
@@ -107,10 +110,18 @@ export default function UserForm() {
     setSaving(true)
     setApiError('')
     try {
+      let savedUserId = id
       if (isEdit) {
         await updateUser(id, form)
       } else {
-        await createUser(form, form.password)
+        const newUser = await createUser(form, form.password)
+        savedUserId = newUser.id
+      }
+      // Save multiple job type associations
+      if (showJobType && selectedJobTypeIds.length >= 0) {
+        await saveUserJobTypes(savedUserId, selectedJobTypeIds).catch(e =>
+          console.warn('saveUserJobTypes:', e.message)
+        )
       }
       navigate(usersHubPath(role))
     } catch (err) {
@@ -233,19 +244,29 @@ export default function UserForm() {
           />
         </FormRow>
 
-        {/* Preferred Job Type */}
-        {showJobType && (
-          <FormRow label="Preferred Job Type">
-            <select
-              className={inputClass('preferred_job_type_id')}
-              value={form.preferred_job_type_id}
-              onChange={e => set('preferred_job_type_id', e.target.value)}
-            >
-              <option value="">-- Select Job Type --</option>
-              {jobSpecs.map(s => (
-                <option key={s.id} value={s.id}>{s.job_type_name}</option>
-              ))}
-            </select>
+        {/* Job Types — multiple allowed for helper/helpee */}
+        {showJobType && jobSpecs.length > 0 && (
+          <FormRow label="Job Type(s)" labelWidth="w-40">
+            <div className="flex-1 space-y-1">
+              {jobSpecs.map(s => {
+                const checked = selectedJobTypeIds.includes(s.id)
+                return (
+                  <label key={s.id} className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      className="w-4 h-4 accent-hh-green"
+                      checked={checked}
+                      onChange={() => {
+                        setSelectedJobTypeIds(prev =>
+                          checked ? prev.filter(x => x !== s.id) : [...prev, s.id]
+                        )
+                      }}
+                    />
+                    <span className="text-sm text-hh-text">{s.job_type_name}</span>
+                  </label>
+                )
+              })}
+            </div>
           </FormRow>
         )}
 

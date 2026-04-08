@@ -756,6 +756,7 @@ export default function JobForm() {
             )}
           </div>
 
+          <div className="mt-4"></div>
           <FormRow label="Remark / notes" labelWidth="w-40">
             <textarea className="form-cell flex-1 w-full outline-none text-sm h-20 resize-none py-2 mt-1"
               value={form.job_notes}
@@ -851,14 +852,15 @@ export default function JobForm() {
             </div>
           </section>
 
-          {canManage && (
+          {(canManage || (isHelper && invoice)) && (
             <section>
               <h2 className="font-semibold text-base mb-3">Invoice Details</h2>
               <div className="flex gap-2 items-center">
                 {invoice && (
                   <button onClick={() => setShowInvoiceView(true)} className="btn-select px-4 text-sm">View Invoice</button>
                 )}
-                {isEdit && dbJobId && (
+                {/* Only admin/supervisor can add or edit invoices */}
+                {canManage && isEdit && dbJobId && (
                   <button onClick={() => setShowInvoiceModal(true)} className="btn-add w-9 h-9" title="Add/Edit Invoice">⊕</button>
                 )}
               </div>

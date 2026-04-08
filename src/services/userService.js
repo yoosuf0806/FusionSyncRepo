@@ -202,6 +202,44 @@ export async function adminResetUserPassword(dbUserId, newPassword) {
   if (error) throw error
 }
 
+
+/**
+ * Fetch all job type IDs associated with a user (from user_job_types junction table).
+ */
+export async function getUserJobTypes(userId) {
+  const { data, error } = await supabase
+    .from('user_job_types')
+    .select('job_type_id')
+    .eq('user_id', userId)
+  if (error) {
+    // Table may not exist yet (migration not run) — return empty gracefully
+    console.warn('getUserJobTypes:', error.message)
+    return []
+  }
+  return (data || []).map(r => r.job_type_id)
+}
+
+/**
+ * Replace all job type associations for a user.
+ * Uses adminClient so admin/supervisor can manage helper job types.
+ */
+export async function saveUserJobTypes(userId, jobTypeIds = []) {
+  const client = adminClient || supabase
+  // Delete existing then re-insert
+  const { error: delErr } = await client
+    .from('user_job_types')
+    .delete()
+    .eq('user_id', userId)
+  if (delErr) throw delErr
+
+  const ids = (jobTypeIds || []).filter(Boolean)
+  if (ids.length === 0) return
+
+  const rows = ids.map(jid => ({ user_id: userId, job_type_id: jid }))
+  const { error: insErr } = await client.from('user_job_types').insert(rows)
+  if (insErr) throw insErr
+}
+
 export async function deleteUser(id) {
   const { data: user, error: fetchErr } = await supabase
     .from('users')

@@ -234,6 +234,9 @@ export async function createJob(jobData, answers = [], associatedUsers = {}, cre
     if (helpeeId) assocRows.push({ job_id: job.id, user_id: helpeeId, role: 'helpee' })
 
   } else if (creatorRole === 'supervisor') {
+    // Supervisor is the creator — use job_requester_id as the canonical supervisor id.
+    // Do NOT also use associatedUsers.supervisor_id (it's the same user) to avoid
+    // the unique constraint violation on (job_id, user_id).
     const supId = jobData.job_requester_id
     if (supId) assocRows.push({ job_id: job.id, user_id: supId, role: 'supervisor' })
     if (associatedUsers.helpee_id)
