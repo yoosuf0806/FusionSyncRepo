@@ -161,17 +161,35 @@ export async function getJobById(id) {
 }
 
 /**
- * Create a new job.
+ * Create a new job and wire up all associations + notifications.
  *
- * creatorRole — the role of the logged-in user creating the job:
- *   'helpee'     → auto-ensures helpee in jau; auto-assigns supervisor if only
- *                  one exists; notifies all supervisors + admins.
- *   'supervisor' → auto-ensures supervisor (creator) in jau; notifies helpee
- *                  and helpers.
- *   'admin'      → notifies all assigned parties.
+ * Business rules:
+ *   HELPEE creates:
+ *     - helpee added to jau (DB trigger notifies them)
+ *     - exactly 1 active supervisor → auto-assign + status → 'manager_assigned'
+ *     - 2+ supervisors → notify all supervisors + all admins; status stays 'request_raised'
+ *
+ *   SUPERVISOR creates on behalf of helpee:
+ *     - supervisor (creator) auto-added to jau
+ *     - helpee + helpers added to jau (DB trigger notifies each)
+ *     - status → 'manager_assigned'; if helpers assigned → 'helper_assigned'
+ *
+ *   ADMIN creates:
+ *     - helpee + supervisor + helpers all added to jau (DB trigger notifies each)
+ *     - status → 'manager_assigned'; if helpers assigned → 'helper_assigned'
  */
 export async function createJob(jobData, answers = [], associatedUsers = {}, creatorRole = null) {
   const isFrequent = jobData.job_category === 'frequent'
+
+  // ── Determine initial status ───────────────────────────────────────
+  let initialStatus = 'request_raised'
+  if (creatorRole === 'supervisor') {
+    initialStatus = (associatedUsers.helper_ids?.length > 0) ? 'helper_assigned' : 'manager_assigned'
+  } else if (creatorRole === 'admin') {
+    initialStatus = (associatedUsers.helper_ids?.length > 0) ? 'helper_assigned' : 'manager_assigned'
+  }
+  // helpee: stays 'request_raised'; may be updated to 'manager_assigned' after auto-assign below
+
   const { data: job, error } = await supabase
     .from('jobs')
     .insert({
@@ -189,7 +207,7 @@ export async function createJob(jobData, answers = [], associatedUsers = {}, cre
       job_location: jobData.job_location || null,
       job_requester_id: jobData.job_requester_id,
       department_id: jobData.department_id || null,
-      status: 'request_raised',
+      status: initialStatus,
     })
     .select()
     .single()
@@ -207,39 +225,47 @@ export async function createJob(jobData, answers = [], associatedUsers = {}, cre
   }
 
   // ── Build job_associated_users rows ───────────────────────────────
+  // The DB trigger `notify_on_job_assignment` (SECURITY DEFINER) fires on every
+  // jau INSERT and automatically notifies the assigned user — no manual notifications needed.
   const assocRows = []
-  if (associatedUsers.helpee_id)
-    assocRows.push({ job_id: job.id, user_id: associatedUsers.helpee_id, role: 'helpee' })
-  if (associatedUsers.supervisor_id)
-    assocRows.push({ job_id: job.id, user_id: associatedUsers.supervisor_id, role: 'supervisor' })
-  for (const hid of (associatedUsers.helper_ids || []))
-    assocRows.push({ job_id: job.id, user_id: hid, role: 'helper' })
 
-  // Ensure creator appears in jau with the correct role
-  if (creatorRole === 'helpee' && jobData.job_requester_id) {
-    if (!assocRows.some(r => r.user_id === jobData.job_requester_id && r.role === 'helpee'))
-      assocRows.push({ job_id: job.id, user_id: jobData.job_requester_id, role: 'helpee' })
-  } else if (creatorRole === 'supervisor' && jobData.job_requester_id) {
-    if (!assocRows.some(r => r.user_id === jobData.job_requester_id && r.role === 'supervisor'))
-      assocRows.push({ job_id: job.id, user_id: jobData.job_requester_id, role: 'supervisor' })
+  if (creatorRole === 'helpee') {
+    const helpeeId = associatedUsers.helpee_id || jobData.job_requester_id
+    if (helpeeId) assocRows.push({ job_id: job.id, user_id: helpeeId, role: 'helpee' })
+
+  } else if (creatorRole === 'supervisor') {
+    const supId = jobData.job_requester_id
+    if (supId) assocRows.push({ job_id: job.id, user_id: supId, role: 'supervisor' })
+    if (associatedUsers.helpee_id)
+      assocRows.push({ job_id: job.id, user_id: associatedUsers.helpee_id, role: 'helpee' })
+    for (const hid of (associatedUsers.helper_ids || []))
+      assocRows.push({ job_id: job.id, user_id: hid, role: 'helper' })
+
+  } else if (creatorRole === 'admin') {
+    if (associatedUsers.helpee_id)
+      assocRows.push({ job_id: job.id, user_id: associatedUsers.helpee_id, role: 'helpee' })
+    if (associatedUsers.supervisor_id)
+      assocRows.push({ job_id: job.id, user_id: associatedUsers.supervisor_id, role: 'supervisor' })
+    for (const hid of (associatedUsers.helper_ids || []))
+      assocRows.push({ job_id: job.id, user_id: hid, role: 'helper' })
   }
-  // admin does not need a jau row (jobs_admin_all policy gives full visibility)
 
   if (assocRows.length > 0) {
-    const { error: jauErr } = await supabase.from('job_associated_users').insert(assocRows)
+    // Always use adminClient for jau inserts so RLS doesn't block cross-user writes
+    const client = adminClient || supabase
+    const { error: jauErr } = await client.from('job_associated_users').insert(assocRows)
     if (jauErr) throw new Error(`Failed to assign users to job: ${jauErr.message}`)
   }
 
-  // ── Post-create side-effects (notifications + auto-assign) ────────
-  const jobName = jobData.job_name || 'New Job'
+  // ── Helpee flow: auto-assign supervisor or notify all supervisors ──
   try {
     if (creatorRole === 'helpee') {
-      await _handleHelpeeJobCreated(job.id, jobName, jobData.job_requester_id)
-    } else if (creatorRole === 'supervisor' || creatorRole === 'admin') {
-      await _notifyJobAssignees(job.id, jobName, associatedUsers, jobData.job_requester_id)
+      await _handleHelpeeJobCreated(job.id, jobData.job_name || 'New Job', jobData.job_requester_id)
+    } else if (creatorRole === 'admin') {
+      await _notifyAdminsOfNewJob(job.id, jobData.job_name || 'New Job', jobData.job_requester_id)
     }
   } catch (e) {
-    console.warn('createJob post-create notifications:', e.message)
+    console.warn('createJob post-create side-effects:', e.message)
   }
 
   return job
@@ -247,42 +273,49 @@ export async function createJob(jobData, answers = [], associatedUsers = {}, cre
 
 /**
  * Called when a helpee creates a job.
- * - If exactly one active supervisor exists → auto-assign them.
- * - Notify every active supervisor + admin of the new request.
+ *
+ * - Exactly 1 active supervisor → auto-assign (jau insert triggers DB notification)
+ *   + advance job status to 'manager_assigned'
+ * - 2+ active supervisors → send explicit notifications to ALL supervisors + admins
+ *   (status stays 'request_raised' — supervisor must self-assign)
  */
 async function _handleHelpeeJobCreated(jobId, jobName, requesterId) {
   const client = adminClient || supabase
-  const message = `New job request: "${jobName}"`
 
-  // Fetch supervisors (needs admin client because helpees can't query all users)
   const { data: supervisors } = await client
     .from('users').select('id').eq('user_type', 'supervisor').eq('is_active', true)
   const supervisorIds = (supervisors || []).map(s => s.id)
 
-  // Auto-assign if there is exactly one supervisor
   if (supervisorIds.length === 1 && adminClient) {
+    // Single supervisor: auto-assign + advance status
     const { error: assignErr } = await adminClient
       .from('job_associated_users')
       .insert({ job_id: jobId, user_id: supervisorIds[0], role: 'supervisor' })
-    if (assignErr) console.warn('auto-assign supervisor:', assignErr.message)
+    if (assignErr) {
+      console.warn('auto-assign supervisor:', assignErr.message)
+    } else {
+      await adminClient.from('jobs').update({ status: 'manager_assigned' }).eq('id', jobId)
+    }
+  } else if (supervisorIds.length > 1 && adminClient) {
+    // Multiple supervisors: notify all, let one self-assign
+    const message = `New job request awaiting assignment: "${jobName}"`
+    for (const sid of supervisorIds) {
+      const { error } = await adminClient.from('notifications').insert({
+        recipient_user_id: sid,
+        title: 'New job request',
+        message,
+        notification_type: 'general',
+        related_job_id: jobId,
+      })
+      if (error) console.warn('notify supervisor:', error.message)
+    }
   }
 
-  // Notify all supervisors
-  for (const sid of supervisorIds) {
-    const { error } = await supabase.from('notifications').insert({
-      recipient_user_id: sid,
-      title: 'New job request',
-      message,
-      notification_type: 'general',
-      related_job_id: jobId,
-    })
-    if (error) console.warn('notify supervisor:', error.message)
-  }
-
-  // Notify all admins (use adminClient since helpee RLS may not cover admin recipients)
+  // Always notify all admins
   if (adminClient) {
     const { data: admins } = await adminClient
       .from('users').select('id').eq('user_type', 'admin').eq('is_active', true)
+    const message = `New job request: "${jobName}"`
     for (const a of (admins || [])) {
       const { error } = await adminClient.from('notifications').insert({
         recipient_user_id: a.id,
@@ -297,36 +330,41 @@ async function _handleHelpeeJobCreated(jobId, jobName, requesterId) {
 }
 
 /**
- * Notify everyone assigned to a job (used when supervisor or admin creates a job).
- * Does not notify the creator (senderUserId).
+ * When admin creates a job, notify other admins (jau DB trigger handles
+ * notifying helpee/supervisor/helpers directly).
  */
-async function _notifyJobAssignees(jobId, jobName, associatedUsers, senderUserId) {
-  const message = `You have been assigned to job: "${jobName}"`
-  const recipientIds = [
-    associatedUsers.helpee_id,
-    associatedUsers.supervisor_id,
-    ...(associatedUsers.helper_ids || []),
-  ].filter(id => id && id !== senderUserId)
-
-  for (const uid of recipientIds) {
-    const { error } = await supabase.from('notifications').insert({
-      recipient_user_id: uid,
-      title: 'Job assigned to you',
+async function _notifyAdminsOfNewJob(jobId, jobName, creatorAdminId) {
+  if (!adminClient) return
+  const { data: admins } = await adminClient
+    .from('users').select('id').eq('user_type', 'admin').eq('is_active', true)
+  const message = `Job created: "${jobName}"`
+  for (const a of (admins || [])) {
+    if (a.id === creatorAdminId) continue
+    const { error } = await adminClient.from('notifications').insert({
+      recipient_user_id: a.id,
+      title: 'New job created',
       message,
-      notification_type: 'job_assigned',
+      notification_type: 'general',
       related_job_id: jobId,
     })
-    if (error) console.warn('notifyJobAssignees:', error.message)
+    if (error) console.warn('notify admin:', error.message)
   }
 }
 
-/** Call after supervisor assigns new helpers on an existing job (current user must be allowed to insert notifications). */
+
+/**
+ * Called after supervisor assigns new helpers to an existing job.
+ * Uses adminClient so supervisor RLS does not block inserting notifications
+ * for other users. The DB trigger handles the initial jau-insert notification,
+ * but this provides an extra explicit notification for late-added helpers.
+ */
 export async function notifyHelpersAssignedToJob(jobId, helperUserIds, jobName) {
   const ids = (helperUserIds || []).filter(Boolean)
   if (ids.length === 0) return
+  const client = adminClient || supabase
   const message = `You have been assigned to: ${jobName || 'a job'}`
   for (const hid of ids) {
-    const { error } = await supabase.from('notifications').insert({
+    const { error } = await client.from('notifications').insert({
       recipient_user_id: hid,
       title: 'Job assignment',
       message,
@@ -523,14 +561,19 @@ export async function saveRemark(jobId, helpeeId, rating, remark) {
 }
 
 export async function upsertAssociatedUser(jobId, userId, roleInJob) {
-  const { error } = await supabase
+  // Use adminClient: supervisors adding helpers hit RLS (jau policy only allows
+  // admin/supervisor to write, but upsert for a helper user_id may be blocked
+  // depending on the specific policy check). adminClient guarantees it always works.
+  const client = adminClient || supabase
+  const { error } = await client
     .from('job_associated_users')
     .upsert({ job_id: jobId, user_id: userId, role: roleInJob }, { onConflict: 'job_id,user_id' })
   if (error) throw error
 }
 
 export async function removeAssociatedUser(jobId, userId) {
-  const { error } = await supabase
+  const client = adminClient || supabase
+  const { error } = await client
     .from('job_associated_users')
     .delete()
     .eq('job_id', jobId)

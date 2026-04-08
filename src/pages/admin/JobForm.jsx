@@ -550,6 +550,21 @@ export default function JobForm() {
         if (canManage && newHelperIds.length > 0) {
           await notifyHelpersAssignedToJob(dbJobId, newHelperIds, form.job_name)
         }
+        // Auto-advance job status when supervisor or helpers are first assigned
+        if (canManage) {
+          let nextStatus = null
+          const hasSupervisor = !!supervisor
+          const hasHelpers = helpers.length > 0
+          if (hasHelpers && ['request_raised', 'manager_assigned'].includes(status)) {
+            nextStatus = 'helper_assigned'
+          } else if (hasSupervisor && status === 'request_raised') {
+            nextStatus = 'manager_assigned'
+          }
+          if (nextStatus) {
+            await updateJobStatus(dbJobId, nextStatus)
+            setStatus(nextStatus)
+          }
+        }
         prevHelperIdsRef.current = helpers.map(h => h.id)
       } else {
         await createJob({ ...form, job_category: category }, answers, assocUsers, role)
@@ -813,6 +828,22 @@ export default function JobForm() {
                 <div className="form-cell flex-1 text-sm">
                   {supervisor ? supervisor.user_name : <span className="text-hh-placeholder">Supervisor Name</span>}
                 </div>
+                {/* Supervisor can assign themselves if no supervisor yet (helpee-created job) */}
+                {isSupervisor && isEdit && !supervisor && (
+                  <button
+                    onClick={() => {
+                      setSupervisor(authUser)
+                      setAssociatedUsers(prev => [
+                        ...prev.filter(a => a.role !== 'supervisor'),
+                        { role: 'supervisor', users: authUser },
+                      ])
+                    }}
+                    className="btn-select px-3 text-xs flex-shrink-0"
+                    title="Assign yourself as supervisor"
+                  >
+                    Assign myself
+                  </button>
+                )}
                 {canManage && (
                   <button onClick={() => setUserPickerRole('supervisor')} className="btn-add w-9 h-9 flex-shrink-0" title="Add Supervisor">⊕</button>
                 )}
