@@ -799,21 +799,25 @@ export default function JobForm() {
 
               {/* Helpers — multiple allowed */}
               <div className="space-y-1">
+                {/* First row: label + first helper (or placeholder) + add button — mirrors Helpee/Supervisor layout */}
                 <div className="flex gap-2 items-center">
                   <div className="form-label w-28 flex-shrink-0">Helper(s)</div>
-                  <div className="flex-1" />
+                  <div className="form-cell flex-1 text-sm">
+                    {helpers.length > 0
+                      ? helpers[0].user_name
+                      : <span className="text-hh-placeholder">{canManage ? 'No helpers assigned' : ''}</span>
+                    }
+                  </div>
+                  {helpers.length > 0 && canManage && (
+                    <button onClick={() => removeHelper(helpers[0].id)}
+                      className="btn-icon w-9 h-9 flex-shrink-0 hover:text-hh-error" title="Remove Helper">✕</button>
+                  )}
                   {canManage && (
                     <button onClick={() => setUserPickerRole('helper')} className="btn-add w-9 h-9 flex-shrink-0" title="Add Helper">⊕</button>
                   )}
                 </div>
-                {helpers.length === 0 ? (
-                  canManage ? (
-                    <div className="flex gap-2 items-center">
-                      <div className="w-28 flex-shrink-0" />
-                      <div className="form-cell flex-1 text-sm text-hh-placeholder">No helpers assigned</div>
-                    </div>
-                  ) : null
-                ) : helpers.map(h => (
+                {/* Additional helpers (2nd onwards) — indented to align with value column */}
+                {helpers.slice(1).map(h => (
                   <div key={h.id} className="flex gap-2 items-center">
                     <div className="w-28 flex-shrink-0" />
                     <div className="form-cell flex-1 text-sm">{h.user_name}</div>
