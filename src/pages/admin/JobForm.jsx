@@ -807,10 +807,12 @@ export default function JobForm() {
                   )}
                 </div>
                 {helpers.length === 0 ? (
-                  <div className="flex gap-2 items-center">
-                    <div className="w-28 flex-shrink-0" />
-                    <div className="form-cell flex-1 text-sm text-hh-placeholder">No helpers assigned</div>
-                  </div>
+                  canManage ? (
+                    <div className="flex gap-2 items-center">
+                      <div className="w-28 flex-shrink-0" />
+                      <div className="form-cell flex-1 text-sm text-hh-placeholder">No helpers assigned</div>
+                    </div>
+                  ) : null
                 ) : helpers.map(h => (
                   <div key={h.id} className="flex gap-2 items-center">
                     <div className="w-28 flex-shrink-0" />

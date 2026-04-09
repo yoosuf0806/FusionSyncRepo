@@ -4,7 +4,6 @@ import ProtectedRoute from './components/ProtectedRoute'
 import RoleRoute from './components/RoleRoute'
 
 // ── Auth / Public pages ───────────────────────────────────────────────────
-import UserSelection from './pages/UserSelection'
 import LoginPage     from './pages/LoginPage'
 
 // ── Shared layout pages ───────────────────────────────────────────────────
@@ -44,11 +43,13 @@ export default function App() {
         <Routes>
 
           {/* ── PUBLIC ────────────────────────────────────────────────── */}
-          <Route path="/"                 element={<UserSelection />} />
-          <Route path="/login/admin"      element={<LoginPage role="admin" />} />
-          <Route path="/login/supervisor" element={<LoginPage role="supervisor" />} />
-          <Route path="/login/helper"     element={<LoginPage role="helper" />} />
-          <Route path="/login/helpee"     element={<LoginPage role="helpee" />} />
+          <Route path="/"                 element={<Navigate to="/login" replace />} />
+          <Route path="/login"            element={<LoginPage />} />
+          {/* Legacy role-specific login URLs — redirect to unified login */}
+          <Route path="/login/admin"      element={<Navigate to="/login" replace />} />
+          <Route path="/login/supervisor" element={<Navigate to="/login" replace />} />
+          <Route path="/login/helper"     element={<Navigate to="/login" replace />} />
+          <Route path="/login/helpee"     element={<Navigate to="/login" replace />} />
           <Route path="/forgot-password"  element={<ForgotPassword />} />
           <Route path="/reset-password"   element={<ResetPassword />} />
 

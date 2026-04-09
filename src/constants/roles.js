@@ -13,8 +13,8 @@ export const ROLE_HOME_ROUTES = {
 }
 
 export const ROLE_LOGIN_ROUTES = {
-  admin: '/login/admin',
-  supervisor: '/login/supervisor',
-  helper: '/login/helper',
-  helpee: '/login/helpee',
+  admin: '/login',
+  supervisor: '/login',
+  helper: '/login',
+  helpee: '/login',
 }

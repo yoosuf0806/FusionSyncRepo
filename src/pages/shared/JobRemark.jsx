@@ -72,7 +72,9 @@ export default function JobRemark() {
     }
   }
 
-  const canEdit = isHelpee || isAdmin
+  // Once a remark has been submitted it is locked for everyone — no further edits
+  const remarkAlreadySubmitted = !!(rating || remarkText) && !loading
+  const canEdit = !remarkAlreadySubmitted && (isHelpee || isAdmin)
 
   if (loading) return <MainLayout title="View Job Rating"><LoadingSpinner /></MainLayout>
 
@@ -82,7 +84,12 @@ export default function JobRemark() {
         {error && <ErrorBanner message={error} onClose={() => setError('')} />}
         {saved && (
           <div className="bg-hh-green text-white rounded-hh px-4 py-3 text-sm font-medium">
-            Rating saved successfully!
+            Rating saved successfully! This remark is now locked.
+          </div>
+        )}
+        {!saved && remarkAlreadySubmitted && (
+          <div className="bg-gray-100 text-gray-600 rounded-hh px-4 py-3 text-sm">
+            This remark has already been submitted and cannot be edited.
           </div>
         )}
 

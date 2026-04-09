@@ -1,29 +1,32 @@
-// Pages 2–5 — Login pages for Admin, Supervisor, Helper, Helpee
+// Single unified login page — no role selection needed.
+// The system detects the user's role from their username/password automatically.
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import AuthLayout from '../layouts/AuthLayout'
-import { loginUser } from '../services/authService'
 import { useAuth } from '../contexts/AuthContext'
 import { ROLE_HOME_ROUTES } from '../constants/roles'
+import { createClient } from '@supabase/supabase-js'
+import { supabase } from '../../supabase/client'
+import { normalizeLoginEmail } from '../services/authService'
 
-const ROLE_TITLES = {
-  admin:      'Admin Login',
-  supervisor: 'Supervisor Login',
-  helper:     'Helper Login',
-  helpee:     'Helpee Login',
-}
+// Service-role client for username lookup (anon RLS can't query all users)
+const _svcKey = import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY
+const _url     = import.meta.env.VITE_SUPABASE_URL
+const adminClient = (_svcKey && _svcKey.startsWith('eyJ'))
+  ? createClient(_url, _svcKey, { auth: { autoRefreshToken: false, persistSession: false } })
+  : null
 
-export default function LoginPage({ role }) {
-  const [email, setEmail]       = useState('')
-  const [password, setPassword] = useState('')
-  const [error, setError]       = useState('')
-  const [loading, setLoading]   = useState(false)
+export default function LoginPage() {
+  const [username, setUsername] = useState('')
+  const [password, setPassword]   = useState('')
+  const [error, setError]         = useState('')
+  const [loading, setLoading]     = useState(false)
   const [fieldErrors, setFieldErrors] = useState({})
 
   const navigate = useNavigate()
   const { session: existingSession, role: existingRole, loading: authLoading } = useAuth()
 
-  // Already logged in — redirect
+  // Already logged in → redirect to role home
   useEffect(() => {
     if (!authLoading && existingSession && existingRole) {
       navigate(ROLE_HOME_ROUTES[existingRole], { replace: true })
@@ -34,24 +37,58 @@ export default function LoginPage({ role }) {
     setError('')
     setFieldErrors({})
 
-    // Validate required fields
     const errs = {}
-    if (!email.trim())    errs.email    = 'Required'
+    if (!username.trim()) errs.username = 'Required'
     if (!password.trim()) errs.password = 'Required'
-    if (Object.keys(errs).length) {
-      setFieldErrors(errs)
-      return
-    }
+    if (Object.keys(errs).length) { setFieldErrors(errs); return }
 
     setLoading(true)
     try {
-      await loginUser(email.trim(), password)
-      // AuthContext will detect the session change and set the role.
-      // After sign-in, check that the signed-in user has the correct role.
-      // The redirect happens via useEffect above once role is set.
+      const loginEmail = normalizeLoginEmail(username.trim())
+
+      // Step 1: Check the username exists in the DB.
+      // Must use adminClient — anon RLS only allows self-select on the users table.
+      const lookupClient = adminClient || supabase
+      const { data: matchedUsers, error: lookupErr } = await lookupClient
+        .from('users')
+        .select('id, user_name, is_active')
+        .ilike('user_name', username.trim())
+        .limit(1)
+
+      if (lookupErr || !matchedUsers || matchedUsers.length === 0) {
+        setPassword('')
+        setError('Wrong username — no account found with that username.')
+        return
+      }
+
+      if (!matchedUsers[0].is_active) {
+        setPassword('')
+        setError('This account has been deactivated. Please contact your administrator.')
+        return
+      }
+
+      // Step 2: Attempt sign in with the normalised email
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: loginEmail,
+        password,
+      })
+
+      if (signInError) {
+        setPassword('')
+        // Distinguish between wrong username and wrong password
+        if (signInError.message?.toLowerCase().includes('invalid login') ||
+            signInError.message?.toLowerCase().includes('invalid credentials')) {
+          setError('Incorrect password. Please try again.')
+        } else {
+          setError(signInError.message || 'Login failed. Please try again.')
+        }
+        return
+      }
+
+      // AuthContext picks up the session change and sets the role → redirect via useEffect
     } catch (err) {
       setPassword('')
-      setError('Username or password is incorrect')
+      setError('Login failed. Please try again.')
     } finally {
       setLoading(false)
     }
@@ -63,24 +100,20 @@ export default function LoginPage({ role }) {
 
   return (
     <AuthLayout>
-      {/* Title */}
-      <h2 className="text-white text-lg font-medium">
-        {ROLE_TITLES[role]}
-      </h2>
+      <h2 className="text-white text-lg font-medium">Login</h2>
 
-      {/* Form fields */}
       <div className="flex flex-col gap-4 w-full max-w-[280px]">
-        {/* Email / Username */}
+        {/* Username */}
         <input
           type="text"
-          placeholder="Username or Email"
-          value={email}
-          onChange={e => { setEmail(e.target.value); setFieldErrors(p => ({...p, email: ''})) }}
+          placeholder="Username"
+          value={username}
+          onChange={e => { setUsername(e.target.value); setFieldErrors(p => ({ ...p, username: '' })); setError('') }}
           onKeyDown={handleKeyDown}
           className={`
             w-full bg-white rounded-pill px-5 h-12 text-sm text-center outline-none
             placeholder-hh-placeholder text-hh-text
-            ${fieldErrors.email ? 'border-2 border-hh-error' : 'border-2 border-transparent'}
+            ${fieldErrors.username ? 'border-2 border-hh-error' : 'border-2 border-transparent'}
             focus:border-hh-green transition-colors
           `}
         />
@@ -90,7 +123,7 @@ export default function LoginPage({ role }) {
           type="password"
           placeholder="Password"
           value={password}
-          onChange={e => { setPassword(e.target.value); setFieldErrors(p => ({...p, password: ''})) }}
+          onChange={e => { setPassword(e.target.value); setFieldErrors(p => ({ ...p, password: '' })); setError('') }}
           onKeyDown={handleKeyDown}
           className={`
             w-full bg-white rounded-pill px-5 h-12 text-sm text-center outline-none
@@ -107,7 +140,7 @@ export default function LoginPage({ role }) {
           className="btn-login disabled:opacity-60"
         >
           {loading ? (
-            <span className="flex items-center gap-2">
+            <span className="flex items-center gap-2 justify-center">
               <span className="w-4 h-4 border-2 border-hh-text border-t-transparent rounded-full animate-spin" />
               Logging in...
             </span>
@@ -129,16 +162,6 @@ export default function LoginPage({ role }) {
       >
         Forgot password?
       </button>
-
-      {/* Back link — not shown on helpee page */}
-      {role !== 'helpee' && (
-        <button
-          onClick={() => navigate('/')}
-          className="text-white/70 text-xs hover:text-white transition-colors mt-1"
-        >
-          ← Back to role selection
-        </button>
-      )}
     </AuthLayout>
   )
 }

@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import MainLayout from '../../layouts/MainLayout'
 import { useAuth } from '../../contexts/AuthContext'
 import {
   getNotifications, markAsRead, markAllRead, subscribeToNotifications,
 } from '../../services/notificationService'
+import { jobDetailPath } from '../../constants/jobPaths'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import EmptyState from '../../components/EmptyState'
 import ErrorBanner from '../../components/ErrorBanner'
@@ -20,7 +22,8 @@ function formatDate(ts) {
 const PAGE_SIZE = 20
 
 export default function Notifications() {
-  const { user: authUser } = useAuth()
+  const navigate = useNavigate()
+  const { user: authUser, role } = useAuth()
   const [dbUserId, setDbUserId] = useState(null)
   const [notifications, setNotifications] = useState([])
   const [offset, setOffset] = useState(0)
@@ -73,6 +76,9 @@ export default function Notifications() {
       await markAsRead(notif.id).catch(() => {})
       setNotifications(prev => prev.map(n => n.id === notif.id ? { ...n, is_read: true } : n))
     }
+    if (notif.related_job_id && role) {
+      navigate(jobDetailPath(role, notif.related_job_id))
+    }
   }
 
   const handleMarkAll = async () => {
@@ -107,12 +113,15 @@ export default function Notifications() {
                 className={`
                   w-full table-row rounded-hh-lg px-4 gap-4 text-left
                   ${!n.is_read ? 'font-semibold' : 'font-normal text-gray-600'}
+                  ${n.related_job_id ? 'hover:bg-hh-mint/40 cursor-pointer' : 'cursor-default'}
                 `}
               >
                 <span className="text-sm text-hh-placeholder flex-shrink-0 w-24">
                   {formatDate(n.created_at)}
                 </span>
-                <span className="text-sm flex-1">{n.message}</span>
+                <span className={`text-sm flex-1 ${n.related_job_id ? 'text-hh-green underline underline-offset-2' : ''}`}>
+                  {n.message}
+                </span>
                 {!n.is_read && (
                   <span className="w-2 h-2 rounded-full bg-hh-error flex-shrink-0" />
                 )}
