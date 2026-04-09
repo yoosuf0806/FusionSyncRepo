@@ -11,7 +11,7 @@ export default function ProtectedRoute({ children, allowedRoles }) {
 
   if (!session) {
     // Redirect to root with session-expired flag in state
-    return <Navigate to="/" state={{ sessionExpired: true, from: location.pathname }} replace />
+    return <Navigate to="/login" state={{ sessionExpired: true, from: location.pathname }} replace />
   }
 
   if (allowedRoles && role && !allowedRoles.includes(role)) {

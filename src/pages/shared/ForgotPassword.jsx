@@ -37,7 +37,7 @@ export default function ForgotPassword() {
               Otherwise, please contact your system administrator to reset your password.
             </p>
           </div>
-          <button onClick={() => navigate('/')} className="text-white/70 text-xs hover:text-white transition-colors">
+          <button onClick={() => navigate('/login')} className="text-white/70 text-xs hover:text-white transition-colors">
             ← Back to login
           </button>
         </div>
@@ -74,7 +74,7 @@ export default function ForgotPassword() {
             <p className="text-hh-error text-xs text-center bg-red-50 rounded-hh px-3 py-2">{error}</p>
           )}
 
-          <button onClick={() => navigate(-1)} className="text-white/70 text-xs hover:text-white transition-colors">
+          <button onClick={() => navigate('/login')} className="text-white/70 text-xs hover:text-white transition-colors">
             ← Back to login
           </button>
         </div>

@@ -7,7 +7,7 @@ export default function RoleRoute({ children, allowedRoles }) {
   const { session, role, loading } = useAuth()
 
   if (loading) return <LoadingSpinner fullPage />
-  if (!session) return <Navigate to="/" replace />
+  if (!session) return <Navigate to="/login" replace />
 
   if (allowedRoles && !allowedRoles.includes(role)) {
     const home = ROLE_HOME_ROUTES[role] || '/'
