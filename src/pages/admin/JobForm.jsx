@@ -782,7 +782,7 @@ export default function JobForm() {
         )}
 
         {/* ── ASSOCIATED USERS + INVOICE ─────────────── */}
-        <div className={`grid gap-6 ${canManage ? 'grid-cols-2' : 'grid-cols-1'}`}>
+        <div className={`grid gap-6 ${(canManage || (isEdit && invoice && (isHelpee || isHelper))) ? 'grid-cols-2' : 'grid-cols-1'}`}>
           <section>
             <h2 className="font-semibold text-base mb-3">Job Associated Users</h2>
             <div className="space-y-2">
@@ -852,7 +852,7 @@ export default function JobForm() {
             </div>
           </section>
 
-          {(canManage || (isHelper && invoice)) && (
+          {(canManage || ((isHelper || isHelpee) && invoice)) && (
             <section>
               <h2 className="font-semibold text-base mb-3">Invoice Details</h2>
               <div className="flex gap-2 items-center">
