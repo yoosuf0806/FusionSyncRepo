@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import MainLayout from '../../layouts/MainLayout'
 import { useAuth } from '../../contexts/AuthContext'
 import { userNewPath, userEditPath } from '../../constants/jobPaths'
-import { getUsers, deleteUser } from '../../services/userService'
+import { getUsers, deleteUser, checkUserActiveJobs } from '../../services/userService'
 import SearchInput from '../../components/SearchInput'
 import ConfirmModal from '../../components/ConfirmModal'
 import LoadingSpinner from '../../components/LoadingSpinner'
@@ -35,6 +35,8 @@ export default function ManageUsers() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [deleteTarget, setDeleteTarget] = useState(null)
+  const [deleteBlocked, setDeleteBlocked] = useState(null) // { user, activeJobs[] }
+  const [deleteChecking, setDeleteChecking] = useState(false)
 
   const fetchUsers = useCallback(async () => {
     setLoading(true)
@@ -51,6 +53,25 @@ export default function ManageUsers() {
 
   useEffect(() => { fetchUsers() }, [fetchUsers])
 
+  // Step 1: check active jobs before showing confirm modal
+  const handleDeleteClick = async (user) => {
+    setDeleteChecking(true)
+    setError('')
+    try {
+      const activeJobs = await checkUserActiveJobs(user.id)
+      if (activeJobs.length > 0) {
+        setDeleteBlocked({ user, activeJobs })
+      } else {
+        setDeleteTarget(user)
+      }
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setDeleteChecking(false)
+    }
+  }
+
+  // Step 2: confirmed — no active jobs, proceed with hard delete
   const handleDelete = async () => {
     try {
       await deleteUser(deleteTarget.id)
@@ -130,7 +151,8 @@ export default function ManageUsers() {
                   </button>
                   {isAdmin && (
                     <button
-                      onClick={() => setDeleteTarget(u)}
+                      onClick={() => handleDeleteClick(u)}
+                      disabled={deleteChecking}
                       className="btn-icon w-8 h-8 hover:text-hh-error hover:border-hh-error"
                       title="Delete"
                     >
@@ -143,9 +165,41 @@ export default function ManageUsers() {
           )}
         </div>
 
+        {/* Blocked — user still has active jobs */}
+        {deleteBlocked && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+            <div className="bg-white rounded-hh-xl shadow-hh-lg p-6 w-full max-w-md mx-4 space-y-4">
+              <h3 className="font-semibold text-hh-text text-base">Cannot Delete User</h3>
+              <p className="text-sm text-hh-text leading-relaxed">
+                <span className="font-medium">{deleteBlocked.user.user_name}</span> is currently assigned to{' '}
+                {deleteBlocked.activeJobs.length} active job{deleteBlocked.activeJobs.length > 1 ? 's' : ''}.
+                Please remove them from the following jobs before deleting their account:
+              </p>
+              <ul className="space-y-1 max-h-48 overflow-y-auto">
+                {deleteBlocked.activeJobs.map(j => (
+                  <li key={j.id} className="flex items-center gap-2 text-sm bg-gray-50 rounded-hh px-3 py-2">
+                    <span className="font-medium text-hh-green">{j.job_id}</span>
+                    <span className="flex-1 text-hh-text truncate">{j.job_name}</span>
+                    <span className="text-xs text-hh-placeholder capitalize">{j.status.replace(/_/g, ' ')}</span>
+                  </li>
+                ))}
+              </ul>
+              <div className="flex justify-end">
+                <button
+                  onClick={() => setDeleteBlocked(null)}
+                  className="btn-action px-6"
+                >
+                  OK, I understand
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Confirm delete — only shown when no active jobs */}
         {deleteTarget && (
           <ConfirmModal
-            message={`Are you sure you want to delete ${deleteTarget.user_name}? This cannot be undone.`}
+            message={`Permanently delete ${deleteTarget.user_name}? Their completed job history will be preserved, but their account and login will be removed. This cannot be undone.`}
             onConfirm={handleDelete}
             onCancel={() => setDeleteTarget(null)}
           />

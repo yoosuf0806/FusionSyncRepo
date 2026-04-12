@@ -240,6 +240,33 @@ export async function saveUserJobTypes(userId, jobTypeIds = []) {
   if (insErr) throw insErr
 }
 
+
+/**
+ * Check if a user has any active (non-completed) job assignments.
+ * Returns the list of active jobs the user is assigned to.
+ * "Active" = any status that is NOT payment_confirmed or job_closed.
+ */
+export async function checkUserActiveJobs(userId) {
+  const client = adminClient || supabase
+  // Get all job IDs this user is assigned to
+  const { data: jauRows, error: jauErr } = await client
+    .from('job_associated_users')
+    .select('job_id')
+    .eq('user_id', userId)
+  if (jauErr) throw jauErr
+  if (!jauRows || jauRows.length === 0) return []
+
+  const jobIds = jauRows.map(r => r.job_id)
+  // Fetch only jobs that are still active (not completed/closed)
+  const { data: activeJobs, error: jobErr } = await client
+    .from('jobs')
+    .select('id, job_id, job_name, status')
+    .in('id', jobIds)
+    .not('status', 'in', '("payment_confirmed","job_closed")')
+  if (jobErr) throw jobErr
+  return activeJobs || []
+}
+
 export async function deleteUser(id) {
   if (!adminClient) throw new Error(
     'Hard delete requires the service role key (VITE_SUPABASE_SERVICE_ROLE_KEY).'
@@ -253,8 +280,10 @@ export async function deleteUser(id) {
     .single()
   if (fetchErr) throw fetchErr
 
-  // 2. Remove from job_associated_users first — that table has ON DELETE RESTRICT
-  //    which would block the users row deletion otherwise.
+  // 2. Remove from job_associated_users (ON DELETE RESTRICT would block users row deletion).
+  //    We only reach here after confirming no active jobs remain.
+  //    Completed job records (jobs table + all related data) are untouched — only the
+  //    user's assignment row in jau is removed, preserving full job history.
   const { error: jauErr } = await adminClient
     .from('job_associated_users')
     .delete()
