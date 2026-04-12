@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
+import logo from '../assets/logo.png'
 import { useAuth } from '../contexts/AuthContext'
 import { getUnreadCount } from '../services/notificationService'
 import {
@@ -168,12 +169,7 @@ export default function MainLayout({ children, title }) {
             title="Go to Home"
             className="flex-shrink-0 flex items-center gap-2 group"
           >
-            <div className="w-9 h-9 rounded-full bg-hh-sidebar flex items-center justify-center shadow-sm group-hover:opacity-90 transition-opacity">
-              <span className="text-white text-xs font-bold leading-none tracking-tight">HH</span>
-            </div>
-            <span className="hidden md:block text-hh-sidebar text-xs font-semibold leading-tight">
-              Helping<br />Hands
-            </span>
+            <img src={logo} alt="Logo" className="w-9 h-9 rounded-full object-cover shadow-sm group-hover:opacity-90 transition-opacity" />
           </button>
 
           <div className="flex-1 flex justify-center">
