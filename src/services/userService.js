@@ -241,19 +241,36 @@ export async function saveUserJobTypes(userId, jobTypeIds = []) {
 }
 
 export async function deleteUser(id) {
-  const { data: user, error: fetchErr } = await supabase
+  if (!adminClient) throw new Error(
+    'Hard delete requires the service role key (VITE_SUPABASE_SERVICE_ROLE_KEY).'
+  )
+
+  // 1. Fetch the auth_user_id so we can delete from auth.users too
+  const { data: user, error: fetchErr } = await adminClient
     .from('users')
-    .select('auth_user_id')
+    .select('auth_user_id, user_name')
     .eq('id', id)
     .single()
   if (fetchErr) throw fetchErr
 
-  const { error } = await supabase
-    .from('users')
-    .update({ is_active: false })
-    .eq('id', id)
-  if (error) throw error
+  // 2. Remove from job_associated_users first — that table has ON DELETE RESTRICT
+  //    which would block the users row deletion otherwise.
+  const { error: jauErr } = await adminClient
+    .from('job_associated_users')
+    .delete()
+    .eq('user_id', id)
+  if (jauErr) throw new Error(`Failed to remove job assignments: ${jauErr.message}`)
 
-  // Auth user is soft-deleted via is_active=false above.
-  // Hard-delete from auth.users can be done from the Supabase dashboard if needed.
+  // 3. Hard-delete the public.users row (cascades to notifications, department_users, etc.)
+  const { error: dbErr } = await adminClient
+    .from('users')
+    .delete()
+    .eq('id', id)
+  if (dbErr) throw new Error(`Failed to delete user record: ${dbErr.message}`)
+
+  // 4. Hard-delete from auth.users — removes login credentials entirely
+  if (user.auth_user_id) {
+    const { error: authErr } = await adminClient.auth.admin.deleteUser(user.auth_user_id)
+    if (authErr) throw new Error(`User record deleted but auth account removal failed: ${authErr.message}`)
+  }
 }
