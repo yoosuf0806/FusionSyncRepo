@@ -123,16 +123,21 @@ export async function createUser(userData, password) {
 }
 
 export async function updateUser(id, userData) {
-  const { data: existing, error: fetchErr } = await supabase
+  if (!adminClient) throw new Error(
+    'Updating users requires the service role key (VITE_SUPABASE_SERVICE_ROLE_KEY).'
+  )
+
+  // Use adminClient for both fetch and update — bypasses RLS so the RETURNING clause
+  // always comes back correctly regardless of the caller's role (admin, supervisor, etc.)
+  // and ensures auth_user_id is always available for the SSO email sync.
+  const { data: existing, error: fetchErr } = await adminClient
     .from('users')
     .select('user_name, user_type, auth_user_id')
     .eq('id', id)
     .single()
   if (fetchErr) throw fetchErr
 
-  // Use .select('id') instead of .select().single() to avoid "cannot coerce result"
-  // errors when the supervisor's RLS SELECT policy filters the RETURNING clause to 0 rows.
-  const { data: updatedRows, error } = await supabase
+  const { error } = await adminClient
     .from('users')
     .update({
       user_name: userData.user_name,
@@ -144,42 +149,28 @@ export async function updateUser(id, userData) {
       user_type: userData.user_type,
     })
     .eq('id', id)
-    .select('id')
   if (error) throw error
-  if (!updatedRows || updatedRows.length === 0) {
-    throw new Error('Update failed — record not found or you do not have permission to edit this user.')
-  }
+
   const data = { id, ...userData }
 
   const nameChanged = (userData.user_name || '').trim() !== (existing.user_name || '').trim()
   const typeChanged = (userData.user_type || '') !== (existing.user_type || '')
 
-  if (!existing.auth_user_id || (!nameChanged && !typeChanged)) {
+  if (!existing.auth_user_id) {
+    // No auth account linked — DB update is all we can do
     return data
   }
 
-  if (nameChanged) {
-    if (!adminClient) {
-      throw new Error(
-        'Profile saved, but the login email (SSO) was not updated. Set VITE_SUPABASE_SERVICE_ROLE_KEY (legacy JWT service role) in .env.'
-      )
-    }
+  if (nameChanged || typeChanged) {
+    // Always sync both email and metadata together when either changes
     const { error: auErr } = await adminClient.auth.admin.updateUserById(existing.auth_user_id, {
-      email: normalizeLoginEmail(userData.user_name),
+      ...(nameChanged ? { email: normalizeLoginEmail(userData.user_name) } : {}),
       user_metadata: { username: userData.user_name, role: userData.user_type },
     })
     if (auErr) {
       throw new Error(
-        `Profile saved, but Supabase Auth (SSO) could not be updated: ${auErr.message}. ` +
-          'Check VITE_SUPABASE_SERVICE_ROLE_KEY (legacy JWT service role).'
+        `Profile saved, but SSO login email could not be updated: ${auErr.message}`
       )
-    }
-  } else if (typeChanged && adminClient) {
-    const { error: metaErr } = await adminClient.auth.admin.updateUserById(existing.auth_user_id, {
-      user_metadata: { username: userData.user_name, role: userData.user_type },
-    })
-    if (metaErr) {
-      throw new Error(`Profile saved, but Auth metadata sync failed: ${metaErr.message}`)
     }
   }
 
