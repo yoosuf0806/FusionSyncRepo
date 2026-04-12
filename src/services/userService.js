@@ -280,24 +280,33 @@ export async function deleteUser(id) {
     .single()
   if (fetchErr) throw fetchErr
 
-  // 2. Remove from job_associated_users (ON DELETE RESTRICT would block users row deletion).
-  //    We only reach here after confirming no active jobs remain.
-  //    Completed job records (jobs table + all related data) are untouched — only the
-  //    user's assignment row in jau is removed, preserving full job history.
+  // 2. Remove from job_associated_users — ON DELETE RESTRICT blocks users row deletion.
+  //    Job records themselves are fully preserved; only the assignment link is removed.
   const { error: jauErr } = await adminClient
     .from('job_associated_users')
     .delete()
     .eq('user_id', id)
   if (jauErr) throw new Error(`Failed to remove job assignments: ${jauErr.message}`)
 
-  // 3. Hard-delete the public.users row (cascades to notifications, department_users, etc.)
+  // 3. Remove from job_remarks — helpee_id is ON DELETE RESTRICT.
+  //    The remark text/rating is lost but the job record itself remains intact.
+  const { error: remarkErr } = await adminClient
+    .from('job_remarks')
+    .delete()
+    .eq('helpee_id', id)
+  if (remarkErr) throw new Error(`Failed to remove job remarks: ${remarkErr.message}`)
+
+  // 4. Hard-delete the public.users row.
+  //    Cascades automatically: notifications, department_users, user_job_types.
+  //    SET NULL automatically: job_requester_id, job_attendance.helpee_id,
+  //    job_attendance.submitted_by, invoices.created_by, job_status_history.changed_by.
   const { error: dbErr } = await adminClient
     .from('users')
     .delete()
     .eq('id', id)
   if (dbErr) throw new Error(`Failed to delete user record: ${dbErr.message}`)
 
-  // 4. Hard-delete from auth.users — removes login credentials entirely
+  // 5. Hard-delete from auth.users — removes login credentials entirely
   if (user.auth_user_id) {
     const { error: authErr } = await adminClient.auth.admin.deleteUser(user.auth_user_id)
     if (authErr) throw new Error(`User record deleted but auth account removal failed: ${authErr.message}`)
