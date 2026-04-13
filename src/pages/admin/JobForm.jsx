@@ -627,8 +627,12 @@ export default function JobForm() {
   const isHourly = form.pricing_structure === 'hourly'
 
   // Attendance pagination
-  const attPages = Math.ceil(attendance.length / ATT_PAGE_SIZE)
-  const attSlice = attendance.slice(attPage * ATT_PAGE_SIZE, (attPage + 1) * ATT_PAGE_SIZE)
+  // Helpee only sees approved rows — other roles see all rows
+  const visibleAttendance = isHelpee
+    ? attendance.filter(r => r.att_status === 'approved')
+    : attendance
+  const attPages = Math.ceil(visibleAttendance.length / ATT_PAGE_SIZE)
+  const attSlice = visibleAttendance.slice(attPage * ATT_PAGE_SIZE, (attPage + 1) * ATT_PAGE_SIZE)
 
   // Monthly total (current month, exclude rejected)
   const now = new Date()
@@ -959,7 +963,7 @@ export default function JobForm() {
           <section>
             <h2 className="font-semibold text-base mb-3">Job Attendance</h2>
 
-            {attendance.length === 0 ? (
+            {visibleAttendance.length === 0 ? (
               <p className="text-sm text-hh-placeholder">
                 {isHelper
                   ? 'No attendance records yet. Check in/out times will appear here once the date range is set by the supervisor.'
@@ -1091,18 +1095,29 @@ export default function JobForm() {
                   </div>
                 </div>
 
-                {/* Submit Attendance — helper bulk-submits all filled rows at once */}
+                {/* Submit Attendance — always visible for helpers */}
                 {isHelper && (() => {
                   const submittableRows = attendance.filter(r =>
                     r.check_in_time && r.check_out_time &&
                     (!r.att_status || r.att_status === 'rejected')
                   )
-                  if (submittableRows.length === 0) return null
+                  const hasRejected = attendance.some(r => r.att_status === 'rejected')
+                  const canSubmitAny = submittableRows.length > 0
                   return (
-                    <div className="mt-4 flex justify-start">
+                    <div className="mt-4 space-y-2">
+                      {hasRejected && (
+                        <p className="text-xs text-hh-error font-medium">
+                          Some attendance rows were rejected. Update the times or note and resubmit.
+                        </p>
+                      )}
+                      {!canSubmitAny && !hasRejected && (
+                        <p className="text-xs text-hh-placeholder">
+                          Fill in Check In and Check Out times above, then click Submit Attendance.
+                        </p>
+                      )}
                       <button
                         type="button"
-                        disabled={saving || !!savingAttRow}
+                        disabled={!canSubmitAny || saving || !!savingAttRow}
                         onClick={async () => {
                           setSaving(true)
                           setError('')
@@ -1114,11 +1129,13 @@ export default function JobForm() {
                           setSaving(false)
                           if (failed > 0) setError(`${failed} row(s) could not be submitted. Ensure check-in and check-out times are filled.`)
                         }}
-                        className="btn-action px-8"
+                        className="btn-action px-8 disabled:opacity-40 disabled:cursor-not-allowed"
                       >
                         {saving || savingAttRow
                           ? 'Submitting...'
-                          : `Submit Attendance (${submittableRows.length} row${submittableRows.length > 1 ? 's' : ''})`}
+                          : canSubmitAny
+                            ? `Submit Attendance (${submittableRows.length} row${submittableRows.length > 1 ? 's' : ''})`
+                            : 'Submit Attendance'}
                       </button>
                     </div>
                   )

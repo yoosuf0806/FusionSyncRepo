@@ -636,8 +636,44 @@ export async function updateAttendanceStatus(rowId, newStatus, rejectionReason) 
     .from('job_attendance')
     .update(payload)
     .eq('id', rowId)
-    .select()
+    .select('*, jobs(id, job_id, job_name)')
     .single()
   if (error) throw error
+
+  // Notify helpers assigned to this job about approve/reject
+  // Use adminClient so supervisor RLS doesn't block inserting notifications for other users
+  try {
+    const client = adminClient || supabase
+    const jobId = data.job_id
+    const jobName = data.jobs?.job_name || data.jobs?.job_id || 'your job'
+    const date = data.attendance_date || ''
+
+    // Get all helpers on this job
+    const { data: helpers } = await client
+      .from('job_associated_users')
+      .select('user_id')
+      .eq('job_id', jobId)
+      .eq('role', 'helper')
+
+    const title = newStatus === 'approved'
+      ? 'Attendance Approved'
+      : 'Attendance Rejected'
+    const message = newStatus === 'approved'
+      ? `Your attendance for ${date} on "${jobName}" has been approved.`
+      : `Your attendance for ${date} on "${jobName}" was rejected${rejectionReason ? ': ' + rejectionReason : '. Please review and resubmit.'}`
+
+    for (const h of (helpers || [])) {
+      await client.from('notifications').insert({
+        recipient_user_id: h.user_id,
+        title,
+        message,
+        notification_type: 'general',
+        related_job_id: jobId,
+      }).catch(() => {})
+    }
+  } catch (e) {
+    console.warn('updateAttendanceStatus notification error:', e.message)
+  }
+
   return data
 }
