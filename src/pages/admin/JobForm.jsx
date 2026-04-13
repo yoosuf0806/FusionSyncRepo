@@ -976,7 +976,8 @@ export default function JobForm() {
                         {['Date', 'Sched. Start', 'Sched. End', 'Check In', 'Check Out', 'Remark', 'Hrs',
                           isHourly ? 'Rate/Hr' : 'Rate/Day',
                           isHourly ? 'Amount' : '',
-                          'Status', 'Action'
+                          'Status',
+                          canManage ? 'Action' : null
                         ].filter(Boolean).map(h => (
                           <th
                             key={h}
@@ -1047,28 +1048,24 @@ export default function JobForm() {
                                 </p>
                               )}
                             </td>
-                            <td className="px-2 py-1.5">
-                              <div className="flex gap-1 flex-wrap">
-                                {(canSubmit || isRejected) && (
-                                  <button onClick={() => handleSubmitRow(row)} disabled={isSaving}
-                                    className="btn-filter text-xs px-2 py-1">
-                                    {isSaving ? '...' : isRejected ? 'Resubmit' : 'Submit'}
-                                  </button>
-                                )}
-                                {canApprove && (
-                                  <button onClick={() => handleApproveRow(row)} disabled={isSaving}
-                                    className="btn-action text-xs px-2 py-1">
-                                    {isSaving ? '...' : 'Approve'}
-                                  </button>
-                                )}
-                                {canReject && (
-                                  <button onClick={() => setRejectTarget(row)} disabled={isSaving}
-                                    className="text-xs px-2 py-1 bg-red-100 text-red-700 rounded-hh hover:bg-red-200">
-                                    Reject
-                                  </button>
-                                )}
-                              </div>
-                            </td>
+                            {canManage && (
+                              <td className="px-2 py-1.5">
+                                <div className="flex gap-1 flex-wrap">
+                                  {canApprove && (
+                                    <button onClick={() => handleApproveRow(row)} disabled={isSaving}
+                                      className="btn-action text-xs px-2 py-1">
+                                      {isSaving ? '...' : 'Approve'}
+                                    </button>
+                                  )}
+                                  {canReject && (
+                                    <button onClick={() => setRejectTarget(row)} disabled={isSaving}
+                                      className="text-xs px-2 py-1 bg-red-100 text-red-700 rounded-hh hover:bg-red-200">
+                                      Reject
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                            )}
                           </tr>
                         )
                       })}
@@ -1093,6 +1090,39 @@ export default function JobForm() {
                     Monthly Total: {monthlyTotal.toFixed(2)}
                   </div>
                 </div>
+
+                {/* Submit Attendance — helper bulk-submits all filled rows at once */}
+                {isHelper && (() => {
+                  const submittableRows = attendance.filter(r =>
+                    r.check_in_time && r.check_out_time &&
+                    (!r.att_status || r.att_status === 'rejected')
+                  )
+                  if (submittableRows.length === 0) return null
+                  return (
+                    <div className="mt-4 flex justify-start">
+                      <button
+                        type="button"
+                        disabled={saving || !!savingAttRow}
+                        onClick={async () => {
+                          setSaving(true)
+                          setError('')
+                          let failed = 0
+                          for (const row of submittableRows) {
+                            try { await handleSubmitRow(row) }
+                            catch { failed++ }
+                          }
+                          setSaving(false)
+                          if (failed > 0) setError(`${failed} row(s) could not be submitted. Ensure check-in and check-out times are filled.`)
+                        }}
+                        className="btn-action px-8"
+                      >
+                        {saving || savingAttRow
+                          ? 'Submitting...'
+                          : `Submit Attendance (${submittableRows.length} row${submittableRows.length > 1 ? 's' : ''})`}
+                      </button>
+                    </div>
+                  )
+                })()}
               </>
             )}
           </section>
