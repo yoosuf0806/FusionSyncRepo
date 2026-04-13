@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import MainLayout from '../../layouts/MainLayout'
 import { useAuth } from '../../contexts/AuthContext'
 import { getJobsForHelpee } from '../../services/jobService'
+import { getHelpeeDashboard } from '../../services/dashboardService'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import EmptyState from '../../components/EmptyState'
 import ErrorBanner from '../../components/ErrorBanner'
@@ -16,6 +17,7 @@ export default function HelpeeHome() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [showTypeModal, setShowTypeModal] = useState(false)
+  const [stats, setStats] = useState(null)
 
   // authUser from context IS the DB user record
   useEffect(() => {
@@ -27,13 +29,34 @@ export default function HelpeeHome() {
       setError(e.message)
       setLoading(false)
     })
+    getHelpeeDashboard(authUser.id).then(setStats).catch(() => setStats({}))
   }, [authUser])
 
   const formatDate = (d) => d ? new Date(d).toLocaleDateString() : '—'
 
   return (
     <MainLayout title="My Jobs">
-      <div className="max-w-3xl mx-auto space-y-4">
+      <div className="max-w-3xl mx-auto space-y-6">
+        {/* ── Dashboard stats ─────────────────────── */}
+        <div className="flex flex-wrap gap-4">
+          {[
+            { label: 'Ongoing Jobs',       value: stats?.ongoing,           color: 'bg-blue-500' },
+            { label: 'Completed Jobs',     value: stats?.completed,         color: 'bg-hh-green' },
+            { label: 'Payment Confirmed',  value: stats?.payment_confirmed, color: 'bg-emerald-500' },
+          ].map(card => (
+            <div key={card.label}
+              className={`${card.color} text-white rounded-hh-xl shadow-hh flex flex-col items-center justify-center gap-2 w-40 h-28 px-3`}
+            >
+              <span className="text-3xl font-bold leading-none">
+                {stats === null
+                  ? <span className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin block" />
+                  : (card.value ?? 0)}
+              </span>
+              <span className="text-xs font-medium text-center leading-tight opacity-90">{card.label}</span>
+            </div>
+          ))}
+        </div>
+
         <div className="flex flex-wrap items-center gap-3">
           <button type="button" onClick={() => setShowTypeModal(true)} className="btn-add" title="Request a new job">
             ⊕
