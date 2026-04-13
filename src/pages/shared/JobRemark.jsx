@@ -37,6 +37,9 @@ export default function JobRemark() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [saved, setSaved] = useState(false)
+  // Track whether a remark already exists in the DB (separate from form state)
+  // This is the correct lock signal — not the form field values
+  const [existsInDb, setExistsInDb] = useState(false)
 
   // authUser from context IS the DB user record
   useEffect(() => {
@@ -47,6 +50,7 @@ export default function JobRemark() {
         if (job.remark) {
           setRating(job.remark.rating || 0)
           setRemarkText(job.remark.remark_text || '')
+          setExistsInDb(true) // remark already saved — lock it
         }
       } catch (e) {
         setError('Unable to load job remark')
@@ -65,6 +69,7 @@ export default function JobRemark() {
     try {
       await saveRemark(id, dbUser.id, rating, remarkText)
       setSaved(true)
+      setExistsInDb(true)
     } catch (e) {
       setError(e.message)
     } finally {
@@ -72,9 +77,10 @@ export default function JobRemark() {
     }
   }
 
-  // Once a remark has been submitted it is locked for everyone — no further edits
-  const remarkAlreadySubmitted = !!(rating || remarkText) && !loading
-  const canEdit = !remarkAlreadySubmitted && (isHelpee || isAdmin)
+  // Remark is locked once it exists in the DB (loaded or just saved)
+  // Helpee can add a remark if none exists yet; admin can always view
+  const remarkAlreadySubmitted = existsInDb
+  const canEdit = !remarkAlreadySubmitted && isHelpee
 
   if (loading) return <MainLayout title="View Job Rating"><LoadingSpinner /></MainLayout>
 
