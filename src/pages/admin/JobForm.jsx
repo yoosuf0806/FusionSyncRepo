@@ -998,7 +998,7 @@ export default function JobForm() {
                         const isPending  = row.att_status === 'pending_approval' || row.att_status === 'resubmitted'
                         const isApproved = row.att_status === 'approved'
                         const canEdit    = canManage || isHelper
-                        const canSubmit  = canEdit && (!row.att_status || isRejected)
+                        const canSubmit  = canEdit && (!row.submitted_at || isRejected)
                         const canApprove = canManage && isPending
                         const canReject  = canManage && isPending
                         const isSaving   = savingAttRow === row.id
@@ -1097,11 +1097,16 @@ export default function JobForm() {
 
                 {/* Submit Attendance — always visible for helpers */}
                 {isHelper && (() => {
+                  // A row is submittable when:
+                  // - check_in AND check_out are filled by the helper
+                  // - AND it has never been submitted (submitted_at is null) OR was rejected
+                  // NOTE: att_status defaults to 'pending_approval' in the DB for all auto-created
+                  // rows — submitted_at is the true indicator of whether helper has submitted it.
                   const submittableRows = attendance.filter(r =>
                     r.check_in_time && r.check_out_time &&
-                    (!r.att_status || r.att_status === 'rejected')
+                    (!r.submitted_at || r.att_status === 'rejected')
                   )
-                  const hasRejected = attendance.some(r => r.att_status === 'rejected')
+                  const hasRejected = attendance.some(r => r.att_status === 'rejected' && r.submitted_at)
                   const canSubmitAny = submittableRows.length > 0
                   return (
                     <div className="mt-4 space-y-2">
