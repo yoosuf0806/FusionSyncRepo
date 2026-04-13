@@ -1,3 +1,4 @@
 # Last deployed: 2026-03-22 13:09:26
 # Env: Legacy JWT keys active
 
+test: verify new netlify pipeline
