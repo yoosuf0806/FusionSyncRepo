@@ -162,16 +162,20 @@ export async function updateUser(id, userData) {
   }
 
   if (nameChanged || typeChanged) {
+    const newEmail = normalizeLoginEmail(userData.user_name)
+    console.log('[updateUser] SSO sync — auth_user_id:', existing.auth_user_id, 'new email:', newEmail)
     // Always sync both email and metadata together when either changes
-    const { error: auErr } = await adminClient.auth.admin.updateUserById(existing.auth_user_id, {
-      ...(nameChanged ? { email: normalizeLoginEmail(userData.user_name) } : {}),
+    const { data: authData, error: auErr } = await adminClient.auth.admin.updateUserById(existing.auth_user_id, {
+      ...(nameChanged ? { email: newEmail, email_confirm: true } : {}),
       user_metadata: { username: userData.user_name, role: userData.user_type },
     })
     if (auErr) {
+      console.error('[updateUser] SSO update error:', auErr)
       throw new Error(
         `Profile saved, but SSO login email could not be updated: ${auErr.message}`
       )
     }
+    console.log('[updateUser] SSO update success — new email:', authData?.user?.email)
   }
 
   return data

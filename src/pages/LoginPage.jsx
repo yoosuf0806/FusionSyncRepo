@@ -46,12 +46,12 @@ export default function LoginPage() {
     try {
       const loginEmail = normalizeLoginEmail(username.trim())
 
-      // Step 1: Check the username exists in the DB.
+      // Step 1: Look up the user by username in public.users and get their auth_user_id.
       // Must use adminClient — anon RLS only allows self-select on the users table.
       const lookupClient = adminClient || supabase
       const { data: matchedUsers, error: lookupErr } = await lookupClient
         .from('users')
-        .select('id, user_name, is_active')
+        .select('id, user_name, is_active, auth_user_id')
         .ilike('user_name', username.trim())
         .limit(1)
 
@@ -61,15 +61,29 @@ export default function LoginPage() {
         return
       }
 
-      if (!matchedUsers[0].is_active) {
+      const matchedUser = matchedUsers[0]
+
+      if (!matchedUser.is_active) {
         setPassword('')
         setError('This account has been deactivated. Please contact your administrator.')
         return
       }
 
-      // Step 2: Attempt sign in with the normalised email
+      // Step 2: Get the actual current auth email via adminClient.
+      // This is critical — Supabase "Secure email change" can leave a pending new_email
+      // that hasn't been confirmed yet, meaning the stored auth email may differ from
+      // what normalizeLoginEmail() would derive from the current username.
+      let authEmail = loginEmail // fallback
+      if (adminClient && matchedUser.auth_user_id) {
+        const { data: authUser } = await adminClient.auth.admin.getUserById(matchedUser.auth_user_id)
+        if (authUser?.user?.email) {
+          authEmail = authUser.user.email
+        }
+      }
+
+      // Step 3: Attempt sign in with the real current auth email
       const { error: signInError } = await supabase.auth.signInWithPassword({
-        email: loginEmail,
+        email: authEmail,
         password,
       })
 
