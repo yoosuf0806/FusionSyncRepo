@@ -315,7 +315,9 @@ export default function JobForm() {
   })
 
   const [form, setForm] = useState({
-    job_name: '', job_description: '', job_type_id: '',
+    job_name: '', job_description: '',
+    // Pre-fill job_type_id from the picker modal state if coming from a new job flow
+    job_type_id: location.state?.job_type_id || '',
     job_notes: '',
     // one-time fields
     job_date: '', job_start_time: '',
@@ -325,7 +327,8 @@ export default function JobForm() {
     job_location: '', job_requester_id: null, department_id: null,
     pricing_structure: 'daily',
   })
-  const [loadedJobTypeName, setLoadedJobTypeName] = useState('')
+  // Pre-fill job type name from picker so it shows immediately before specs load
+  const [loadedJobTypeName, setLoadedJobTypeName] = useState(location.state?.job_type_name || '')
   const [jobId, setJobId] = useState('Auto-generated')
   const [status, setStatus] = useState('request_raised')
   const [dbJobId, setDbJobId] = useState(null)
@@ -655,9 +658,24 @@ export default function JobForm() {
                 <div className="form-cell flex-1 text-sm text-hh-placeholder">{jobId}</div>
               </FormRow>
               <FormRow label="Job Type" labelWidth="w-40">
+  {/* If job type was pre-selected in the picker, show as a locked display field.
+                     Admin/Supervisor can still change it via the dropdown if needed. */}
                 {isJobFieldsReadOnly ? (
                   <div className="form-cell flex-1 text-sm">
                     {loadedJobTypeName || selectedSpec?.job_type_name || specs.find(s => s.id === form.job_type_id)?.job_type_name || '—'}
+                  </div>
+                ) : (location.state?.job_type_id && !isEdit && form.job_type_id) ? (
+                  <div className="flex items-center gap-2 flex-1">
+                    <div className="form-cell flex-1 text-sm font-medium text-hh-text">
+                      {loadedJobTypeName || selectedSpec?.job_type_name || specs.find(s => s.id === form.job_type_id)?.job_type_name || '—'}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => { setField('job_type_id', ''); setLoadedJobTypeName('') }}
+                      className="text-xs text-hh-green underline flex-shrink-0 hover:opacity-70"
+                    >
+                      Change
+                    </button>
                   </div>
                 ) : (
                   <select className={inputClass} value={form.job_type_id}

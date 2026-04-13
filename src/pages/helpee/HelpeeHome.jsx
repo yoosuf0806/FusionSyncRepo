@@ -8,6 +8,7 @@ import EmptyState from '../../components/EmptyState'
 import ErrorBanner from '../../components/ErrorBanner'
 import { JOB_STATUS_LABELS } from '../../constants/jobStatuses'
 import { jobDetailPath, jobNewPath } from '../../constants/jobPaths'
+import JobTypePickerModal from '../../components/JobTypePickerModal'
 
 export default function HelpeeHome() {
   const navigate = useNavigate()
@@ -79,30 +80,13 @@ export default function HelpeeHome() {
       </div>
 
       {showTypeModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
-          <div className="bg-hh-mint rounded-hh-xl shadow-hh-lg w-full max-w-sm p-8 space-y-6">
-            <h2 className="text-lg font-semibold text-center text-hh-text">Select Job Type</h2>
-            <div className="flex gap-4 justify-center">
-              <button
-                type="button"
-                onClick={() => { setShowTypeModal(false); navigate(jobNewPath(role), { state: { category: 'one-time' } }) }}
-                className="flex-1 py-4 bg-white text-hh-text font-medium rounded-hh border-2 border-hh-green hover:bg-hh-green hover:text-white transition-colors"
-              >
-                One-Time Job
-              </button>
-              <button
-                type="button"
-                onClick={() => { setShowTypeModal(false); navigate(jobNewPath(role), { state: { category: 'frequent' } }) }}
-                className="flex-1 py-4 bg-white text-hh-text font-medium rounded-hh border-2 border-hh-green hover:bg-hh-green hover:text-white transition-colors"
-              >
-                Frequent Job
-              </button>
-            </div>
-            <button type="button" onClick={() => setShowTypeModal(false)} className="w-full btn-filter text-sm">
-              Cancel
-            </button>
-          </div>
-        </div>
+        <JobTypePickerModal
+          onSelect={({ category, job_type_id, job_type_name }) => {
+            setShowTypeModal(false)
+            navigate(jobNewPath(role), { state: { category, job_type_id, job_type_name } })
+          }}
+          onClose={() => setShowTypeModal(false)}
+        />
       )}
     </MainLayout>
   )
