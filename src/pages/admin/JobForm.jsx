@@ -955,12 +955,18 @@ export default function JobForm() {
         )}
 
         {/* ── ATTENDANCE (Frequent jobs only) ──────── */}
-        {isFrequent && isEdit && !isHelpee && (
+        {isFrequent && isEdit && (
           <section>
             <h2 className="font-semibold text-base mb-3">Job Attendance</h2>
 
             {attendance.length === 0 ? (
-              <p className="text-sm text-hh-placeholder">No attendance records yet. Save the job with date range first.</p>
+              <p className="text-sm text-hh-placeholder">
+                {isHelper
+                  ? 'No attendance records yet. Check in/out times will appear here once the date range is set by the supervisor.'
+                  : isHelpee
+                    ? 'No attendance records yet.'
+                    : 'No attendance records yet. Save the job with date range first.'}
+              </p>
             ) : (
               <>
                 <div className="overflow-x-auto">
