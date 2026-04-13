@@ -37,26 +37,6 @@ export default function HelpeeHome() {
   return (
     <MainLayout title="My Jobs">
       <div className="max-w-3xl mx-auto space-y-6">
-        {/* ── Dashboard stats ─────────────────────── */}
-        <div className="flex flex-wrap gap-4">
-          {[
-            { label: 'Ongoing Jobs',       value: stats?.ongoing,           color: 'bg-blue-500' },
-            { label: 'Completed Jobs',     value: stats?.completed,         color: 'bg-hh-green' },
-            { label: 'Payment Confirmed',  value: stats?.payment_confirmed, color: 'bg-emerald-500' },
-          ].map(card => (
-            <div key={card.label}
-              className={`${card.color} text-white rounded-hh-xl shadow-hh flex flex-col items-center justify-center gap-2 w-40 h-28 px-3`}
-            >
-              <span className="text-3xl font-bold leading-none">
-                {stats === null
-                  ? <span className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin block" />
-                  : (card.value ?? 0)}
-              </span>
-              <span className="text-xs font-medium text-center leading-tight opacity-90">{card.label}</span>
-            </div>
-          ))}
-        </div>
-
         <div className="flex flex-wrap items-center gap-3">
           <button type="button" onClick={() => setShowTypeModal(true)} className="btn-add" title="Request a new job">
             ⊕
@@ -100,6 +80,31 @@ export default function HelpeeHome() {
           </div>
         )}
       </div>
+
+      {/* ── Overview — below quick actions with clear separation ── */}
+      <section className="mt-10 pt-8 border-t border-gray-200">
+        <h2 className="text-xs font-semibold text-hh-placeholder uppercase tracking-widest mb-4">Overview</h2>
+        <div className="flex flex-wrap gap-3">
+          {[
+            { label: 'Ongoing Jobs',      value: stats?.ongoing           },
+            { label: 'Completed Jobs',    value: stats?.completed,  accent: true },
+            { label: 'Payment Confirmed', value: stats?.payment_confirmed },
+          ].map(card => (
+            <div
+              key={card.label}
+              className="bg-gray-800 rounded-xl px-5 py-4 flex flex-col gap-1 min-w-[140px] flex-1
+                border border-gray-700"
+            >
+              <span className="text-xs font-medium text-gray-400 leading-tight tracking-wide">{card.label}</span>
+              <span className={`text-2xl font-bold leading-tight ${card.accent ? 'text-hh-green' : 'text-white'}`}>
+                {stats === null
+                  ? <span className="w-5 h-5 border-2 border-gray-500 border-t-gray-300 rounded-full animate-spin inline-block align-middle" />
+                  : (card.value ?? 0)}
+              </span>
+            </div>
+          ))}
+        </div>
+      </section>
 
       {showTypeModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">

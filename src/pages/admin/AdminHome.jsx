@@ -8,37 +8,30 @@ import {
   getHelperDashboard,
 } from '../../services/dashboardService'
 
-function StatCard({ label, value, color = 'green', onClick }) {
-  const colorMap = {
-    green:  'bg-hh-green    text-white',
-    teal:   'bg-emerald-500 text-white',
-    yellow: 'bg-yellow-400  text-hh-text',
-    red:    'bg-hh-error    text-white',
-    blue:   'bg-blue-500    text-white',
-    gray:   'bg-gray-400    text-white',
-  }
+// ── Redesigned stat card — dark tile, label on top, large value below ─────
+function StatCard({ label, value, accent = false, onClick }) {
   const isLoading = value === null
   return (
     <button
       onClick={onClick}
       disabled={!onClick || isLoading}
       className={`
-        ${colorMap[color] || colorMap.green}
-        rounded-hh-xl shadow-hh flex flex-col items-center justify-center gap-2
-        w-40 h-32 px-3 transition-all duration-150
-        ${onClick && !isLoading ? 'hover:opacity-90 active:scale-95 cursor-pointer' : 'cursor-default'}
+        bg-gray-800 rounded-xl px-5 py-4 flex flex-col gap-1 min-w-[140px] flex-1
+        text-left transition-all duration-150 border border-gray-700
+        ${onClick && !isLoading ? 'hover:bg-gray-700 hover:border-gray-500 cursor-pointer active:scale-95' : 'cursor-default'}
       `}
     >
-      <span className="text-3xl font-bold leading-none">
+      <span className="text-xs font-medium text-gray-400 leading-tight tracking-wide">{label}</span>
+      <span className={`text-2xl font-bold leading-tight ${accent ? 'text-hh-green' : 'text-white'}`}>
         {isLoading
-          ? <span className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin block" />
-          : (value ?? '—')}
+          ? <span className="w-5 h-5 border-2 border-gray-500 border-t-gray-300 rounded-full animate-spin inline-block align-middle" />
+          : (value ?? 0)}
       </span>
-      <span className="text-xs font-medium text-center leading-tight opacity-90">{label}</span>
     </button>
   )
 }
 
+// ── Nav card (quick action — unchanged style) ─────────────────────────────
 function NavCard({ label, onClick }) {
   return (
     <button
@@ -54,23 +47,28 @@ function NavCard({ label, onClick }) {
   )
 }
 
+// ── Overview section wrapper ──────────────────────────────────────────────
+function OverviewSection({ title, children }) {
+  return (
+    <section className="mt-12 pt-8 border-t border-gray-200">
+      <h2 className="text-xs font-semibold text-hh-placeholder uppercase tracking-widest mb-4">
+        {title}
+      </h2>
+      <div className="flex flex-wrap gap-3">
+        {children}
+      </div>
+    </section>
+  )
+}
+
+// ── Admin ─────────────────────────────────────────────────────────────────
 function AdminDashboard({ navigate }) {
   const [stats, setStats] = useState(null)
   useEffect(() => {
     getAdminDashboard().then(setStats).catch(() => setStats({}))
   }, [])
   return (
-    <div className="space-y-8">
-      <section>
-        <h2 className="text-sm font-semibold text-hh-placeholder uppercase tracking-wide mb-4">Overview</h2>
-        <div className="flex flex-wrap gap-4">
-          <StatCard label="Total Users"          value={stats?.total_users}        color="teal"   onClick={() => navigate('/admin/manage-users')} />
-          <StatCard label="Total Jobs"           value={stats?.total_jobs}         color="blue"   onClick={() => navigate('/admin/manage-jobs')} />
-          <StatCard label="Pending Jobs"         value={stats?.pending}            color="yellow" onClick={() => navigate('/admin/manage-jobs')} />
-          <StatCard label="Completed Jobs"       value={stats?.completed}          color="green"  onClick={() => navigate('/admin/manage-jobs')} />
-          <StatCard label="Helpers Not Assigned" value={stats?.unassigned_helpers} color="red"    onClick={() => navigate('/admin/manage-users')} />
-        </div>
-      </section>
+    <div>
       <section>
         <h2 className="text-sm font-semibold text-hh-placeholder uppercase tracking-wide mb-4">Quick Actions</h2>
         <div className="flex flex-wrap gap-6">
@@ -80,27 +78,26 @@ function AdminDashboard({ navigate }) {
           <NavCard label={['Manage', 'Setup']}                 onClick={() => navigate('/admin/setup')} />
         </div>
       </section>
+
+      <OverviewSection title="Overview">
+        <StatCard label="Total Users"          value={stats?.total_users}        onClick={() => navigate('/admin/manage-users')} />
+        <StatCard label="Total Jobs"           value={stats?.total_jobs}         onClick={() => navigate('/admin/manage-jobs')} />
+        <StatCard label="Pending Jobs"         value={stats?.pending}            onClick={() => navigate('/admin/manage-jobs')} />
+        <StatCard label="Completed Jobs"       value={stats?.completed}          onClick={() => navigate('/admin/manage-jobs')} accent />
+        <StatCard label="Helpers Not Assigned" value={stats?.unassigned_helpers} onClick={() => navigate('/admin/manage-users')} />
+      </OverviewSection>
     </div>
   )
 }
 
+// ── Supervisor ────────────────────────────────────────────────────────────
 function SupervisorDashboard({ navigate }) {
   const [stats, setStats] = useState(null)
   useEffect(() => {
     getSupervisorDashboard().then(setStats).catch(() => setStats({}))
   }, [])
   return (
-    <div className="space-y-8">
-      <section>
-        <h2 className="text-sm font-semibold text-hh-placeholder uppercase tracking-wide mb-4">Overview</h2>
-        <div className="flex flex-wrap gap-4">
-          <StatCard label="Unassigned Jobs"      value={stats?.unassigned_jobs}    color="red"    onClick={() => navigate('/supervisor/manage-jobs')} />
-          <StatCard label="Pending Jobs"         value={stats?.pending}            color="yellow" onClick={() => navigate('/supervisor/manage-jobs')} />
-          <StatCard label="Ongoing Jobs"         value={stats?.ongoing}            color="blue"   onClick={() => navigate('/supervisor/manage-jobs')} />
-          <StatCard label="Completed Jobs"       value={stats?.completed}          color="green"  onClick={() => navigate('/supervisor/manage-jobs')} />
-          <StatCard label="Helpers Not Assigned" value={stats?.unassigned_helpers} color="gray"   onClick={() => navigate('/supervisor/manage-users')} />
-        </div>
-      </section>
+    <div>
       <section>
         <h2 className="text-sm font-semibold text-hh-placeholder uppercase tracking-wide mb-4">Quick Actions</h2>
         <div className="flex flex-wrap gap-6">
@@ -109,10 +106,19 @@ function SupervisorDashboard({ navigate }) {
           <NavCard label={['Manage', 'Job', 'Specifications']} onClick={() => navigate('/supervisor/job-specs')} />
         </div>
       </section>
+
+      <OverviewSection title="Overview">
+        <StatCard label="Unassigned Jobs"      value={stats?.unassigned_jobs}    onClick={() => navigate('/supervisor/manage-jobs')} />
+        <StatCard label="Pending Jobs"         value={stats?.pending}            onClick={() => navigate('/supervisor/manage-jobs')} />
+        <StatCard label="Ongoing Jobs"         value={stats?.ongoing}            onClick={() => navigate('/supervisor/manage-jobs')} accent />
+        <StatCard label="Completed Jobs"       value={stats?.completed}          onClick={() => navigate('/supervisor/manage-jobs')} accent />
+        <StatCard label="Helpers Not Assigned" value={stats?.unassigned_helpers} onClick={() => navigate('/supervisor/manage-users')} />
+      </OverviewSection>
     </div>
   )
 }
 
+// ── Helper ────────────────────────────────────────────────────────────────
 function HelperDashboard({ navigate, userId }) {
   const [stats, setStats] = useState(null)
   useEffect(() => {
@@ -120,24 +126,23 @@ function HelperDashboard({ navigate, userId }) {
     getHelperDashboard(userId).then(setStats).catch(() => setStats({}))
   }, [userId])
   return (
-    <div className="space-y-8">
-      <section>
-        <h2 className="text-sm font-semibold text-hh-placeholder uppercase tracking-wide mb-4">My Jobs</h2>
-        <div className="flex flex-wrap gap-4">
-          <StatCard label="Pending Jobs"   value={stats?.pending}   color="yellow" onClick={() => navigate('/helper/manage-jobs')} />
-          <StatCard label="Completed Jobs" value={stats?.completed} color="green"  onClick={() => navigate('/helper/manage-jobs')} />
-        </div>
-      </section>
+    <div>
       <section>
         <h2 className="text-sm font-semibold text-hh-placeholder uppercase tracking-wide mb-4">Quick Actions</h2>
         <div className="flex flex-wrap gap-6">
           <NavCard label={['Manage', 'Jobs']} onClick={() => navigate('/helper/manage-jobs')} />
         </div>
       </section>
+
+      <OverviewSection title="My Jobs Overview">
+        <StatCard label="Pending Jobs"   value={stats?.pending}   onClick={() => navigate('/helper/manage-jobs')} />
+        <StatCard label="Completed Jobs" value={stats?.completed} onClick={() => navigate('/helper/manage-jobs')} accent />
+      </OverviewSection>
     </div>
   )
 }
 
+// ── Root ──────────────────────────────────────────────────────────────────
 export default function AdminHome() {
   const navigate = useNavigate()
   const { user, isAdmin, isSupervisor, isHelper } = useAuth()
