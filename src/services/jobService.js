@@ -517,7 +517,7 @@ export async function submitAttendance(jobId, attendanceRows) {
   for (const row of rows) {
     const { error } = await supabase
       .from('job_attendance')
-      .upsert(row, { onConflict: 'job_id,attendance_date' })
+      .upsert(row, { onConflict: 'job_id,attendance_date,helper_id' })
     if (error) throw error
   }
 }
@@ -635,10 +635,10 @@ export async function upsertAttendanceRow(jobId, rowData) {
     if (error) throw error
     return { ...data, helper_name: data.users?.user_name || null }
   }
-  // New row: upsert on (job_id, attendance_date, helper_id)
+  // New row: INSERT (each helper has their own independent row per date)
   const { data, error } = await supabase
     .from('job_attendance')
-    .upsert(payload, { onConflict: 'job_id,attendance_date,helper_id' })
+    .insert(payload)
     .select('*, users(user_name)')
     .single()
   if (error) throw error
