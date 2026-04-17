@@ -333,7 +333,7 @@ BEGIN
     WHILE day_cursor <= NEW.job_to_date LOOP
       INSERT INTO public.job_attendance (job_id, attendance_date)
       VALUES (NEW.id, day_cursor)
-      ON CONFLICT (job_id, attendance_date) DO NOTHING;
+      ON CONFLICT (job_id, attendance_date, helper_id) DO NOTHING;
       day_cursor := day_cursor + INTERVAL '1 day';
     END LOOP;
 
@@ -356,7 +356,7 @@ BEGIN
     WHILE day_cursor <= NEW.job_to_date LOOP
       INSERT INTO public.job_attendance (job_id, attendance_date)
       VALUES (NEW.id, day_cursor)
-      ON CONFLICT (job_id, attendance_date) DO NOTHING;
+      ON CONFLICT (job_id, attendance_date, helper_id) DO NOTHING;
       day_cursor := day_cursor + INTERVAL '1 day';
     END LOOP;
 
