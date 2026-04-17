@@ -435,9 +435,12 @@ export default function JobForm() {
   // so they have something to fill in even before their first submission.
   // These rows have no 'id' — they only get an id after the helper submits.
   useEffect(() => {
-    if (!isHelper || !isEdit || category !== JOB_CATEGORIES.FREQUENT) return
+    // Generate placeholder rows for every date in the range so the table is
+    // always visible regardless of whether helpers have submitted yet.
+    // - Helper: gets editable rows with their own helper_id stamped
+    // - Admin/Supervisor/Helpee: gets read-only scaffold rows (no helper_id)
+    if (!isEdit || category !== JOB_CATEGORIES.FREQUENT) return
     if (!form.job_from_date || !form.job_to_date) return
-    if (!authUser?.id) return
 
     const start = new Date(form.job_from_date)
     const end   = new Date(form.job_to_date)
@@ -447,15 +450,21 @@ export default function JobForm() {
     }
 
     setAttendance(prev => {
-      const existingDates = new Set(prev.map(r => r.attendance_date))
+      // For helpers: check existing by date (their rows keyed by date+helper)
+      // For others: check existing by date only
+      const existingDates = new Set(
+        isHelper
+          ? prev.filter(r => r.helper_id === authUser?.id || String(r.id||'').startsWith('temp_')).map(r => r.attendance_date)
+          : prev.map(r => r.attendance_date)
+      )
       const newRows = dates
         .filter(dt => !existingDates.has(dt))
         .map(dt => ({
-          id: `temp_${dt}_${authUser.id}`,
+          id: isHelper ? `temp_${dt}_${authUser?.id}` : `scaffold_${dt}`,
           job_id: dbJobId,
           attendance_date: dt,
-          helper_id: authUser.id,
-          helper_name: authUser.user_name,
+          helper_id: isHelper ? (authUser?.id || null) : null,
+          helper_name: isHelper ? (authUser?.user_name || null) : null,
           check_in_time: '',
           check_out_time: '',
           remark: '',
@@ -472,7 +481,7 @@ export default function JobForm() {
       )
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isHelper, isEdit, category, form.job_from_date, form.job_to_date, authUser?.id, dbJobId])
+  }, [isEdit, category, form.job_from_date, form.job_to_date, authUser?.id, dbJobId])
 
   useEffect(() => {
     if (!isEdit) return
@@ -633,8 +642,8 @@ export default function JobForm() {
     if (!row.check_in_time || !row.check_out_time) { setError('Check In and Check Out times are required'); return }
     setSavingAttRow(row.id)
     try {
-      // Strip temp_ prefixed IDs — these are UI-only and should not be sent to the DB
-      const dbId = row.id && String(row.id).startsWith('temp_') ? null : row.id
+      // Strip temp_/scaffold_ prefixed IDs — these are UI-only placeholders
+      const dbId = row.id && (String(row.id).startsWith('temp_') || String(row.id).startsWith('scaffold_')) ? null : row.id
       const updated = await upsertAttendanceRow(dbJobId, {
         id: dbId,
         attendance_date: row.attendance_date,

@@ -613,18 +613,13 @@ export async function removeAssociatedUser(jobId, userId) {
 }
 
 export async function getAttendanceForJob(jobId) {
-  // Join users table to get helper name — used by admin/supervisor "Helper" column
   const { data, error } = await supabase
     .from('job_attendance')
-    .select('*, users!helper_id(user_name)')
+    .select('*')
     .eq('job_id', jobId)
     .order('attendance_date')
   if (error) throw error
-  // Flatten helper user_name onto the row for easy UI access
-  return (data || []).map(r => ({
-    ...r,
-    helper_name: r.users?.user_name || null,
-  }))
+  return data || []
 }
 
 /** Fetch only the current helper's own attendance rows for a job */
@@ -658,19 +653,19 @@ export async function upsertAttendanceRow(jobId, rowData) {
       .from('job_attendance')
       .update(payload)
       .eq('id', rowData.id)
-      .select('*, users!helper_id(user_name)')
+      .select('*')
       .single()
     if (error) throw error
-    return { ...data, helper_name: data.users?.user_name || null }
+    return data
   }
   // New row: INSERT (each helper has their own independent row per date)
   const { data, error } = await supabase
     .from('job_attendance')
     .insert(payload)
-    .select('*, users!helper_id(user_name)')
+    .select('*')
     .single()
   if (error) throw error
-  return { ...data, helper_name: data.users?.user_name || null }
+  return data
 }
 
 export async function updateAttendanceStatus(rowId, newStatus, rejectionReason) {
@@ -685,16 +680,15 @@ export async function updateAttendanceStatus(rowId, newStatus, rejectionReason) 
     .from('job_attendance')
     .update(payload)
     .eq('id', rowId)
-    .select('*, jobs(id, job_id, job_name)')
+    .select('*')
     .single()
   if (error) throw error
 
   // Notify helpers assigned to this job about approve/reject
-  // Use adminClient so supervisor RLS doesn't block inserting notifications for other users
   try {
     const client = adminClient || supabase
     const jobId = data.job_id
-    const jobName = data.jobs?.job_name || data.jobs?.job_id || 'your job'
+    const jobName = 'your job'
     const date = data.attendance_date || ''
 
     // Get all helpers on this job
