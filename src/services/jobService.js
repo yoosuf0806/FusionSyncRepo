@@ -616,7 +616,7 @@ export async function getAttendanceForJob(jobId) {
   // Join users table to get helper name — used by admin/supervisor "Helper" column
   const { data, error } = await supabase
     .from('job_attendance')
-    .select('*, users(user_name)')
+    .select('*, users!helper_id(user_name)')
     .eq('job_id', jobId)
     .order('attendance_date')
   if (error) throw error
@@ -658,7 +658,7 @@ export async function upsertAttendanceRow(jobId, rowData) {
       .from('job_attendance')
       .update(payload)
       .eq('id', rowData.id)
-      .select('*, users(user_name)')
+      .select('*, users!helper_id(user_name)')
       .single()
     if (error) throw error
     return { ...data, helper_name: data.users?.user_name || null }
@@ -667,7 +667,7 @@ export async function upsertAttendanceRow(jobId, rowData) {
   const { data, error } = await supabase
     .from('job_attendance')
     .insert(payload)
-    .select('*, users(user_name)')
+    .select('*, users!helper_id(user_name)')
     .single()
   if (error) throw error
   return { ...data, helper_name: data.users?.user_name || null }
