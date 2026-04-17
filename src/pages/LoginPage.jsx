@@ -46,13 +46,12 @@ export default function LoginPage() {
     try {
       const loginEmail = normalizeLoginEmail(username.trim())
 
-      // Step 1: Look up user by 'username' field first, fall back to 'user_name'.
-      // Existing accounts may have username = NULL if the column was added after account creation.
+      // Step 1: Look up user by user_name (the login identifier).
       const lookupClient = adminClient || supabase
       const { data: matchedUsers, error: lookupErr } = await lookupClient
         .from('users')
-        .select('id, user_name, username, is_active, auth_user_id')
-        .or(`username.ilike.${username.trim()},user_name.ilike.${username.trim()}`)
+        .select('id, user_name, is_active, auth_user_id')
+        .ilike('user_name', username.trim())
         .limit(1)
 
       if (lookupErr || !matchedUsers || matchedUsers.length === 0) {
