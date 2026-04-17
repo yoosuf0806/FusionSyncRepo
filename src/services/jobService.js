@@ -619,7 +619,22 @@ export async function getAttendanceForJob(jobId) {
     .eq('job_id', jobId)
     .order('attendance_date')
   if (error) throw error
-  return data || []
+  const rows = data || []
+
+  // Look up helper names for any rows that have a helper_id set
+  const helperIds = [...new Set(rows.map(r => r.helper_id).filter(Boolean))]
+  if (helperIds.length > 0) {
+    const client = supabase
+    const { data: users } = await client
+      .from('users')
+      .select('id, user_name')
+      .in('id', helperIds)
+    const nameMap = {}
+    ;(users || []).forEach(u => { nameMap[u.id] = u.user_name })
+    return rows.map(r => ({ ...r, helper_name: r.helper_id ? (nameMap[r.helper_id] || null) : null }))
+  }
+
+  return rows.map(r => ({ ...r, helper_name: null }))
 }
 
 /** Fetch only the current helper's own attendance rows for a job */
