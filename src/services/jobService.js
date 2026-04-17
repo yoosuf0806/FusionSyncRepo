@@ -517,7 +517,7 @@ export async function submitAttendance(jobId, attendanceRows) {
   for (const row of rows) {
     const { error } = await supabase
       .from('job_attendance')
-      .upsert(row, { onConflict: 'job_id,attendance_date,helper_id' })
+      .insert(row)
     if (error) throw error
   }
 }
