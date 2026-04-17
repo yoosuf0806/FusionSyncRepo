@@ -51,13 +51,13 @@ export default function LoginPage() {
       const lookupClient = adminClient || supabase
       const { data: matchedUsers, error: lookupErr } = await lookupClient
         .from('users')
-        .select('id, user_name, is_active, auth_user_id')
-        .ilike('user_name', username.trim())
+        .select('id, user_name, username, is_active, auth_user_id')
+        .ilike('username', username.trim())
         .limit(1)
 
       if (lookupErr || !matchedUsers || matchedUsers.length === 0) {
         setPassword('')
-        setError('Wrong username — no account found with that username.')
+        setError('Wrong username — no account found. Please check your username and try again.')
         return
       }
 

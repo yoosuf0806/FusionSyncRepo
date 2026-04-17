@@ -20,7 +20,7 @@ export default function UserForm() {
   const isEdit = Boolean(id)
 
   const [form, setForm] = useState({
-    user_name: '', user_type: 'helper', user_email: '',
+    user_name: '', username: '', user_type: 'helper', user_email: '',
     user_phone: '', user_location: '', department_id: '', preferred_job_type_id: '',
     password: '',
   })
@@ -52,6 +52,7 @@ export default function UserForm() {
       getUserById(id).then(user => {
         setForm({
           user_name: user.user_name || '',
+          username: user.username || '',
           user_type: user.user_type || 'helper',
           user_email: user.user_email || '',
           user_phone: user.user_phone || '',
@@ -80,6 +81,8 @@ export default function UserForm() {
   const validate = () => {
     const e = {}
     if (!form.user_name.trim()) e.user_name = 'Name is required'
+    if (!form.username.trim()) e.username = 'Username (login) is required'
+    if (form.username.trim() && !/^[a-zA-Z0-9._-]+$/.test(form.username.trim())) e.username = 'Username can only contain letters, numbers, dots, hyphens and underscores'
     if (form.user_email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.user_email)) e.user_email = 'Enter a valid email address'
     if (!isEdit && !form.password) e.password = 'Password is required for new users'
     if (!isEdit && form.password && form.password.length < 6) e.password = 'Password must be at least 6 characters'
@@ -173,6 +176,20 @@ export default function UserForm() {
           />
         </FormRow>
         {errors.user_name && <p className="text-hh-error text-xs ml-52">{errors.user_name}</p>}
+
+        {/* Username — login handle, used for SSO */}
+        <FormRow label="Username">
+          <input
+            className={inputClass('username')}
+            value={form.username}
+            onChange={e => set('username', e.target.value.toLowerCase().replace(/\s+/g, '.'))}
+            placeholder="e.g. john.smith (used to log in)"
+          />
+        </FormRow>
+        {errors.username && <p className="text-hh-error text-xs ml-52">{errors.username}</p>}
+        <p className="text-hh-placeholder text-xs ml-52">
+          This is the login username. Lowercase letters, numbers, dots, hyphens only.
+        </p>
 
         {/* Email */}
         <FormRow label="Contact Email">

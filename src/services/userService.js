@@ -28,7 +28,7 @@ const signupClient = createClient(
 export async function getUsers({ search = '', userType = '' } = {}) {
   let query = supabase
     .from('users')
-    .select('id, user_id, user_name, user_type, user_email, user_phone, user_location, department_id, preferred_job_type_id, profile_image_url, is_active, departments(department_name), job_specifications(job_type_name)')
+    .select('id, user_id, user_name, username, user_type, user_email, user_phone, user_location, department_id, preferred_job_type_id, profile_image_url, is_active, departments(department_name), job_specifications(job_type_name)')
     .eq('is_active', true)
     .order('user_id')
 
@@ -66,8 +66,12 @@ export async function getUserByAuthId(authId) {
 
 export async function createUser(userData, password) {
   const contactEmail = userData.user_email?.trim() || null
-  // Auth email is always username-based so username login always works
-  const authEmail = normalizeLoginEmail(userData.user_name)
+  // SSO auth email is derived from the dedicated 'username' login field,
+  // NOT from user_name (display name). This keeps login handles stable
+  // even if the person's display name changes.
+  const loginHandle = (userData.username || '').trim()
+  if (!loginHandle) throw new Error('Username (login handle) is required.')
+  const authEmail = normalizeLoginEmail(loginHandle)
 
   let authUserId
 
@@ -77,7 +81,7 @@ export async function createUser(userData, password) {
       email: authEmail,
       password,
       email_confirm: true,
-      user_metadata: { username: userData.user_name, role: userData.user_type },
+      user_metadata: { username: loginHandle, display_name: userData.user_name, role: userData.user_type },
     })
     if (authError) throw authError
     authUserId = authData.user.id
@@ -98,6 +102,7 @@ export async function createUser(userData, password) {
   const { data, error } = await supabase.from('users').insert({
     auth_user_id: authUserId,
     user_name: userData.user_name,
+    username: loginHandle,
     user_email: contactEmail,
     user_type: userData.user_type,
     user_phone: userData.user_phone || null,
@@ -132,7 +137,7 @@ export async function updateUser(id, userData) {
   // and ensures auth_user_id is always available for the SSO email sync.
   const { data: existing, error: fetchErr } = await adminClient
     .from('users')
-    .select('user_name, user_type, auth_user_id')
+    .select('user_name, username, user_type, auth_user_id')
     .eq('id', id)
     .single()
   if (fetchErr) throw fetchErr
@@ -141,6 +146,7 @@ export async function updateUser(id, userData) {
     .from('users')
     .update({
       user_name: userData.user_name,
+      username: userData.username || null,
       user_email: userData.user_email?.trim() || null,
       user_phone: userData.user_phone || null,
       user_location: userData.user_location || null,
@@ -153,29 +159,34 @@ export async function updateUser(id, userData) {
 
   const data = { id, ...userData }
 
-  const nameChanged = (userData.user_name || '').trim() !== (existing.user_name || '').trim()
+  // SSO is keyed on 'username' (the dedicated login handle field), not 'user_name' (display name)
+  const newUsername = (userData.username || '').trim()
+  const oldUsername = (existing.username || '').trim()
+  const usernameChanged = newUsername !== oldUsername
   const typeChanged = (userData.user_type || '') !== (existing.user_type || '')
 
   if (!existing.auth_user_id) {
-    // No auth account linked — DB update is all we can do
     return data
   }
 
-  if (nameChanged || typeChanged) {
-    const newEmail = normalizeLoginEmail(userData.user_name)
-    console.log('[updateUser] SSO sync — auth_user_id:', existing.auth_user_id, 'new email:', newEmail)
-    // Always sync both email and metadata together when either changes
-    const { data: authData, error: auErr } = await adminClient.auth.admin.updateUserById(existing.auth_user_id, {
-      ...(nameChanged ? { email: newEmail, email_confirm: true } : {}),
-      user_metadata: { username: userData.user_name, role: userData.user_type },
+  if (usernameChanged || typeChanged) {
+    if (!newUsername) {
+      throw new Error('Cannot update SSO: username field is empty. Please provide a login username.')
+    }
+    // Derive the SSO email strictly from the username field
+    const newAuthEmail = normalizeLoginEmail(newUsername)
+    const { error: auErr } = await adminClient.auth.admin.updateUserById(existing.auth_user_id, {
+      // email_confirm: true forces immediate email update, bypassing Supabase's
+      // "Secure email change" confirmation flow which would otherwise leave the
+      // email in a pending new_email state rather than applying it immediately.
+      ...(usernameChanged ? { email: newAuthEmail, email_confirm: true } : {}),
+      user_metadata: { username: newUsername, display_name: userData.user_name, role: userData.user_type },
     })
     if (auErr) {
-      console.error('[updateUser] SSO update error:', auErr)
       throw new Error(
-        `Profile saved, but SSO login email could not be updated: ${auErr.message}`
+        `Profile saved, but SSO login could not be updated: ${auErr.message}`
       )
     }
-    console.log('[updateUser] SSO update success — new email:', authData?.user?.email)
   }
 
   return data
