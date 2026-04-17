@@ -531,9 +531,31 @@ export default function JobForm() {
 
       if (job.invoice) setInvoice(job.invoice)
 
-      // Load attendance for frequent jobs
+      // Load attendance for frequent jobs — merge DB rows, don't overwrite scaffold rows
       if (jc === JOB_CATEGORIES.FREQUENT) {
-        getAttendanceForJob(job.id).then(rows => setAttendance(rows)).catch(() => {})
+        getAttendanceForJob(job.id).then(dbRows => {
+          setAttendance(prev => {
+            if (!dbRows || dbRows.length === 0) return prev
+            // Replace scaffold/temp rows with real DB rows where date matches,
+            // keep scaffold rows for dates that have no DB row yet
+            const dbByDate = {}
+            dbRows.forEach(r => {
+              const key = r.attendance_date
+              if (!dbByDate[key]) dbByDate[key] = []
+              dbByDate[key].push(r)
+            })
+            // Remove scaffold rows that now have real DB rows
+            const filtered = prev.filter(r =>
+              !String(r.id || '').startsWith('scaffold_') || !dbByDate[r.attendance_date]
+            )
+            // Add all DB rows that aren't already in state
+            const existingIds = new Set(filtered.map(r => r.id))
+            const toAdd = dbRows.filter(r => !existingIds.has(r.id))
+            return [...filtered, ...toAdd].sort((a, b) =>
+              (a.attendance_date || '').localeCompare(b.attendance_date || '')
+            )
+          })
+        }).catch(() => {})
       }
 
       setLoading(false)
