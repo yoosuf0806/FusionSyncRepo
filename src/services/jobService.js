@@ -585,10 +585,27 @@ export async function removeAssociatedUser(jobId, userId) {
 }
 
 export async function getAttendanceForJob(jobId) {
+  // Join users table to get helper name — used by admin/supervisor "Helper" column
+  const { data, error } = await supabase
+    .from('job_attendance')
+    .select('*, users(user_name)')
+    .eq('job_id', jobId)
+    .order('attendance_date')
+  if (error) throw error
+  // Flatten helper user_name onto the row for easy UI access
+  return (data || []).map(r => ({
+    ...r,
+    helper_name: r.users?.user_name || null,
+  }))
+}
+
+/** Fetch only the current helper's own attendance rows for a job */
+export async function getAttendanceForHelper(jobId, helperId) {
   const { data, error } = await supabase
     .from('job_attendance')
     .select('*')
     .eq('job_id', jobId)
+    .eq('helper_id', helperId)
     .order('attendance_date')
   if (error) throw error
   return data || []
@@ -604,24 +621,28 @@ export async function upsertAttendanceRow(jobId, rowData) {
     att_status: rowData.att_status || 'pending_approval',
     submitted_at: rowData.submitted_at || null,
     resubmitted_at: rowData.resubmitted_at || null,
+    // helper_id tracks which helper owns this row for multi-helper support
+    ...(rowData.helper_id ? { helper_id: rowData.helper_id } : {}),
   }
   if (rowData.id) {
+    // Existing row: update by primary key
     const { data, error } = await supabase
       .from('job_attendance')
       .update(payload)
       .eq('id', rowData.id)
-      .select()
+      .select('*, users(user_name)')
       .single()
     if (error) throw error
-    return data
+    return { ...data, helper_name: data.users?.user_name || null }
   }
+  // New row: upsert on (job_id, attendance_date, helper_id)
   const { data, error } = await supabase
     .from('job_attendance')
-    .upsert(payload, { onConflict: 'job_id,attendance_date' })
-    .select()
+    .upsert(payload, { onConflict: 'job_id,attendance_date,helper_id' })
+    .select('*, users(user_name)')
     .single()
   if (error) throw error
-  return data
+  return { ...data, helper_name: data.users?.user_name || null }
 }
 
 export async function updateAttendanceStatus(rowId, newStatus, rejectionReason) {

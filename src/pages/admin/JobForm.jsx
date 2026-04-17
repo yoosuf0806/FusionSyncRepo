@@ -5,7 +5,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import {
   getJobById, createJob, updateJob, updateJobStatus,
   saveInvoice, uploadInvoiceAttachment, upsertAssociatedUser, removeAssociatedUser,
-  getAttendanceForJob, upsertAttendanceRow, updateAttendanceStatus,
+  getAttendanceForJob, getAttendanceForHelper, upsertAttendanceRow, updateAttendanceStatus,
   getJobMessages, postJobMessage, notifyHelpersAssignedToJob,
 } from '../../services/jobService'
 import { getJobSpecs, getQuestionsForSpec } from '../../services/jobSpecService'
@@ -431,6 +431,49 @@ export default function JobForm() {
 
   useEffect(() => { loadQuestions(form.job_type_id) }, [form.job_type_id, loadQuestions])
 
+  // For helpers: generate blank UI rows for each date in the job range
+  // so they have something to fill in even before their first submission.
+  // These rows have no 'id' — they only get an id after the helper submits.
+  useEffect(() => {
+    if (!isHelper || !isEdit || !isFrequent) return
+    if (!form.job_from_date || !form.job_to_date) return
+    if (!authUser?.id) return
+
+    const start = new Date(form.job_from_date)
+    const end   = new Date(form.job_to_date)
+    const dates = []
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      dates.push(d.toISOString().slice(0, 10))
+    }
+
+    setAttendance(prev => {
+      const existingDates = new Set(prev.map(r => r.attendance_date))
+      const newRows = dates
+        .filter(dt => !existingDates.has(dt))
+        .map(dt => ({
+          id: null,
+          job_id: dbJobId,
+          attendance_date: dt,
+          helper_id: authUser.id,
+          helper_name: authUser.user_name,
+          check_in_time: '',
+          check_out_time: '',
+          remark: '',
+          att_status: null,
+          submitted_at: null,
+          total_hours: null,
+          rate_for_day: null,
+          job_start_time: form.job_start_time || null,
+          job_end_time: form.job_end_time || null,
+        }))
+      if (newRows.length === 0) return prev
+      return [...prev, ...newRows].sort((a, b) =>
+        (a.attendance_date || '').localeCompare(b.attendance_date || '')
+      )
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isHelper, isEdit, isFrequent, form.job_from_date, form.job_to_date, authUser?.id, dbJobId])
+
   useEffect(() => {
     if (!isEdit) return
     getJobById(id).then(job => {
@@ -599,8 +642,15 @@ export default function JobForm() {
         att_status: 'pending_approval',
         submitted_at: new Date().toISOString(),
         resubmitted_at: row.att_status === 'rejected' ? new Date().toISOString() : null,
+        // Stamp which helper submitted this row (required for unique constraint)
+        helper_id: authUser?.id || row.helper_id || null,
       })
-      setAttendance(prev => prev.map(r => r.id === row.id ? { ...r, ...updated } : r))
+      setAttendance(prev => {
+        // If this was a new row (no id yet), add it; otherwise update existing
+        const exists = prev.some(r => r.id === updated.id)
+        if (exists) return prev.map(r => r.id === updated.id ? { ...r, ...updated } : r)
+        return [...prev, updated]
+      })
     } catch (e) { setError(e.message) } finally { setSavingAttRow(null) }
   }
 
@@ -977,7 +1027,9 @@ export default function JobForm() {
                   <table className="w-full min-w-[1040px] text-xs border-collapse">
                     <thead>
                       <tr>
-                        {['Date', 'Sched. Start', 'Sched. End', 'Check In', 'Check Out', 'Remark', 'Hrs',
+                        {['Date',
+                          canManage ? 'Helper' : null,
+                          'Sched. Start', 'Sched. End', 'Check In', 'Check Out', 'Remark', 'Hrs',
                           isHourly ? 'Rate/Hr' : 'Rate/Day',
                           isHourly ? 'Amount' : '',
                           'Status',
@@ -1005,6 +1057,11 @@ export default function JobForm() {
                         return (
                           <tr key={row.id} className="border-b border-gray-100">
                             <td className="px-2 py-1.5 font-medium">{row.attendance_date}</td>
+                            {canManage && (
+                              <td className="px-2 py-1.5 text-sm font-medium text-hh-text">
+                                {row.helper_name || <span className="text-hh-placeholder text-xs">—</span>}
+                              </td>
+                            )}
                             <td className="px-2 py-1.5 text-hh-placeholder">{row.job_start_time || '—'}</td>
                             <td className="px-2 py-1.5 text-hh-placeholder">{row.job_end_time || '—'}</td>
                             <td className="px-2 py-1.5">
