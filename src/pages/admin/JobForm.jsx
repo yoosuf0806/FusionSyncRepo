@@ -435,7 +435,7 @@ export default function JobForm() {
   // so they have something to fill in even before their first submission.
   // These rows have no 'id' — they only get an id after the helper submits.
   useEffect(() => {
-    if (!isHelper || !isEdit || !isFrequent) return
+    if (!isHelper || !isEdit || category !== JOB_CATEGORIES.FREQUENT) return
     if (!form.job_from_date || !form.job_to_date) return
     if (!authUser?.id) return
 
@@ -472,7 +472,7 @@ export default function JobForm() {
       )
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isHelper, isEdit, isFrequent, form.job_from_date, form.job_to_date, authUser?.id, dbJobId])
+  }, [isHelper, isEdit, category, form.job_from_date, form.job_to_date, authUser?.id, dbJobId])
 
   useEffect(() => {
     if (!isEdit) return
