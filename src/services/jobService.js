@@ -552,26 +552,54 @@ export async function uploadInvoiceAttachment(jobId, file) {
 }
 
 export async function saveRemark(jobId, helpeeId, rating, remark) {
-  const { error } = await supabase
+  // Check if remark already exists — avoids onConflict named constraint requirement
+  const { data: existing } = await supabase
     .from('job_remarks')
-    .upsert({
-      job_id: jobId,
-      helpee_id: helpeeId,
-      rating,
-      remark_text: remark,
-    }, { onConflict: 'job_id,helpee_id' })
-  if (error) throw error
+    .select('id')
+    .eq('job_id', jobId)
+    .eq('helpee_id', helpeeId)
+    .maybeSingle()
+
+  if (existing) {
+    const { error } = await supabase
+      .from('job_remarks')
+      .update({ rating, remark_text: remark })
+      .eq('job_id', jobId)
+      .eq('helpee_id', helpeeId)
+    if (error) throw error
+  } else {
+    const { error } = await supabase
+      .from('job_remarks')
+      .insert({ job_id: jobId, helpee_id: helpeeId, rating, remark_text: remark })
+    if (error) throw error
+  }
 }
 
 export async function upsertAssociatedUser(jobId, userId, roleInJob) {
-  // Use adminClient: supervisors adding helpers hit RLS (jau policy only allows
-  // admin/supervisor to write, but upsert for a helper user_id may be blocked
-  // depending on the specific policy check). adminClient guarantees it always works.
   const client = adminClient || supabase
-  const { error } = await client
+  // Check if row already exists — avoids onConflict which requires a named constraint
+  const { data: existing } = await client
     .from('job_associated_users')
-    .upsert({ job_id: jobId, user_id: userId, role: roleInJob }, { onConflict: 'job_id,user_id' })
-  if (error) throw error
+    .select('id')
+    .eq('job_id', jobId)
+    .eq('user_id', userId)
+    .maybeSingle()
+
+  if (existing) {
+    // Row exists — update role in case it changed
+    const { error } = await client
+      .from('job_associated_users')
+      .update({ role: roleInJob })
+      .eq('job_id', jobId)
+      .eq('user_id', userId)
+    if (error) throw error
+  } else {
+    // Row does not exist — insert
+    const { error } = await client
+      .from('job_associated_users')
+      .insert({ job_id: jobId, user_id: userId, role: roleInJob })
+    if (error) throw error
+  }
 }
 
 export async function removeAssociatedUser(jobId, userId) {
