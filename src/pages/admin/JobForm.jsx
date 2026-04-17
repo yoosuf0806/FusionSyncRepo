@@ -451,7 +451,7 @@ export default function JobForm() {
       const newRows = dates
         .filter(dt => !existingDates.has(dt))
         .map(dt => ({
-          id: null,
+          id: `temp_${dt}_${authUser.id}`,
           job_id: dbJobId,
           attendance_date: dt,
           helper_id: authUser.id,
@@ -633,8 +633,10 @@ export default function JobForm() {
     if (!row.check_in_time || !row.check_out_time) { setError('Check In and Check Out times are required'); return }
     setSavingAttRow(row.id)
     try {
+      // Strip temp_ prefixed IDs — these are UI-only and should not be sent to the DB
+      const dbId = row.id && String(row.id).startsWith('temp_') ? null : row.id
       const updated = await upsertAttendanceRow(dbJobId, {
-        id: row.id,
+        id: dbId,
         attendance_date: row.attendance_date,
         check_in_time: row.check_in_time,
         check_out_time: row.check_out_time,
@@ -646,7 +648,18 @@ export default function JobForm() {
         helper_id: authUser?.id || row.helper_id || null,
       })
       setAttendance(prev => {
-        // If this was a new row (no id yet), add it; otherwise update existing
+        // Replace temp row (matched by date+helper) or update existing DB row by id
+        const hasTempRow = prev.some(r =>
+          String(r.id || '').startsWith('temp_') &&
+          r.attendance_date === updated.attendance_date
+        )
+        if (hasTempRow) {
+          return prev.map(r =>
+            String(r.id || '').startsWith('temp_') && r.attendance_date === updated.attendance_date
+              ? { ...r, ...updated }
+              : r
+          )
+        }
         const exists = prev.some(r => r.id === updated.id)
         if (exists) return prev.map(r => r.id === updated.id ? { ...r, ...updated } : r)
         return [...prev, updated]
