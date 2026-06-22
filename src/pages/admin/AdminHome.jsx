@@ -74,6 +74,7 @@ function AdminDashboard({ navigate }) {
         <div className="flex flex-wrap gap-6">
           <NavCard label={['Manage', 'Users']}                 onClick={() => navigate('/admin/manage-users')} />
           <NavCard label={['Manage', 'Jobs']}                  onClick={() => navigate('/admin/manage-jobs')} />
+          <NavCard label={['Manage', 'Attendance']}            onClick={() => navigate('/admin/manage-attendance')} />
           <NavCard label={['Manage', 'Job', 'Specifications']} onClick={() => navigate('/admin/job-specs')} />
           <NavCard label={['Manage', 'Setup']}                 onClick={() => navigate('/admin/setup')} />
         </div>
@@ -103,6 +104,7 @@ function SupervisorDashboard({ navigate }) {
         <div className="flex flex-wrap gap-6">
           <NavCard label={['Manage', 'Users']}                 onClick={() => navigate('/supervisor/manage-users')} />
           <NavCard label={['Manage', 'Jobs']}                  onClick={() => navigate('/supervisor/manage-jobs')} />
+          <NavCard label={['Manage', 'Attendance']}            onClick={() => navigate('/supervisor/manage-attendance')} />
           <NavCard label={['Manage', 'Job', 'Specifications']} onClick={() => navigate('/supervisor/job-specs')} />
         </div>
       </section>

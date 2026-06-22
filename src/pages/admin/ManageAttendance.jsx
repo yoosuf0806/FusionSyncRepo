@@ -111,6 +111,7 @@ export default function ManageAttendance() {
                 <th className="px-3 py-2.5 font-medium">Check In</th>
                 <th className="px-3 py-2.5 font-medium">Check Out</th>
                 <th className="px-3 py-2.5 font-medium">Hours</th>
+                <th className="px-3 py-2.5 font-medium">Location</th>
                 <th className="px-3 py-2.5 font-medium">Status</th>
                 <th className="px-3 py-2.5 font-medium">Action</th>
               </tr>
@@ -137,6 +138,22 @@ export default function ManageAttendance() {
                   </td>
                   <td className="px-3 py-2.5">{fmtTime(r.checkout_at)}</td>
                   <td className="px-3 py-2.5">{r.total_hours != null ? `${r.total_hours}h` : '—'}</td>
+                  <td className="px-3 py-2.5">
+                    {r.checkin_latitude != null && r.checkin_longitude != null ? (
+                      <a
+                        href={`https://www.google.com/maps?q=${r.checkin_latitude},${r.checkin_longitude}`}
+                        target="_blank" rel="noopener noreferrer"
+                        className="text-hh-green hover:underline text-xs"
+                        title={`${r.checkin_latitude}, ${r.checkin_longitude}`}
+                      >
+                        📍 View
+                      </a>
+                    ) : r.location_missing ? (
+                      <span className="text-xs text-hh-error">Not captured</span>
+                    ) : (
+                      <span className="text-xs text-hh-placeholder">—</span>
+                    )}
+                  </td>
                   <td className="px-3 py-2.5">
                     <span className={`text-xs px-2 py-0.5 rounded-full ${STATUS_STYLE[r.att_status] || ''}`}>
                       {(r.att_status || '').replace('_', ' ')}
