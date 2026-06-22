@@ -8,7 +8,7 @@ export const ROLES = {
 export const ROLE_HOME_ROUTES = {
   admin: '/admin/home',
   supervisor: '/supervisor/home',
-  helper: '/helper/home',
+  helper: '/helper/my-day',
   helpee: '/helpee/home',
 }
 

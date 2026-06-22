@@ -54,10 +54,11 @@ export default function MainLayout({ children, title }) {
 
   const homePath = isAdmin        ? '/admin/home'
     : isSupervisor  ? '/supervisor/home'
-    : isHelper      ? '/helper/home'
+    : isHelper      ? '/helper/my-day'
     : '/helpee/home'
 
   const navItems = [
+    { label: 'My Day',                    path: '/helper/my-day',      show: isHelper },
     { label: 'Manage Users',              path: usersHubPath(role),    show: isAdmin || isSupervisor },
     { label: 'Manage Jobs',               path: jobsHubPath(role),     show: true },
     { label: 'Manage Job Specifications', path: jobSpecsHubPath(role), show: isAdmin || isSupervisor },
@@ -65,6 +66,9 @@ export default function MainLayout({ children, title }) {
   ].filter(item => item.show)
 
   const navItemActive = (item) => {
+    if (item.label === 'My Day') {
+      return location.pathname.startsWith('/helper/my-day')
+    }
     if (item.label === 'Manage Jobs') {
       if (isHelpee)     return location.pathname === '/helpee/home'     || location.pathname.startsWith('/helpee/jobs')
       if (isHelper)     return location.pathname.startsWith('/helper/manage-jobs') || location.pathname.startsWith('/helper/jobs')
