@@ -30,10 +30,12 @@ import ResetPassword  from './pages/shared/ResetPassword'
 // ── Helpee home ───────────────────────────────────────────────────────────
 import HelpeeHome from './pages/helpee/HelpeeHome'
 import MyDay from './pages/helper/MyDay'
+import ManageAttendance from './pages/admin/ManageAttendance'
 
 // ── Role arrays ───────────────────────────────────────────────────────────
 const ADMIN_ONLY      = ['admin']
 const SUPERVISOR_ONLY = ['supervisor']
+const ADMIN_SUPERVISOR = ['admin', 'supervisor']
 const HELPER_ONLY     = ['helper']
 const HELPEE_ONLY     = ['helpee']
 
@@ -85,6 +87,8 @@ export default function App() {
 
           <Route path="/admin/manage-jobs"
             element={<RoleRoute allowedRoles={ADMIN_ONLY}><ManageJobs /></RoleRoute>} />
+          <Route path="/admin/manage-attendance"
+            element={<RoleRoute allowedRoles={ADMIN_ONLY}><ManageAttendance /></RoleRoute>} />
           <Route path="/admin/jobs/new"
             element={<RoleRoute allowedRoles={ADMIN_ONLY}><JobForm /></RoleRoute>} />
           <Route path="/admin/jobs/new/frequent"
@@ -131,6 +135,8 @@ export default function App() {
 
           <Route path="/supervisor/manage-jobs"
             element={<RoleRoute allowedRoles={SUPERVISOR_ONLY}><ManageJobs /></RoleRoute>} />
+          <Route path="/supervisor/manage-attendance"
+            element={<RoleRoute allowedRoles={SUPERVISOR_ONLY}><ManageAttendance /></RoleRoute>} />
           <Route path="/supervisor/jobs/new"
             element={<RoleRoute allowedRoles={SUPERVISOR_ONLY}><JobForm /></RoleRoute>} />
           <Route path="/supervisor/jobs/new/frequent"

@@ -989,6 +989,53 @@ function nextDay(dateStr) {
 }
 
 /**
+ * Fetch attendance records for the internal team (admin/supervisor) to review
+ * and correct. Returns rows enriched with job name/id and helper name.
+ * Optional filters: dateFrom, dateTo, jobId, helperId.
+ */
+export async function getAllAttendanceRecords({ dateFrom, dateTo, jobId, helperId } = {}) {
+  let query = supabase
+    .from('job_attendance')
+    .select('*')
+    .order('attendance_date', { ascending: false })
+
+  if (dateFrom) query = query.gte('attendance_date', dateFrom)
+  if (dateTo) query = query.lte('attendance_date', dateTo)
+  if (jobId) query = query.eq('job_id', jobId)
+  if (helperId) query = query.eq('helper_id', helperId)
+
+  const { data: rows, error } = await query
+  if (error) throw error
+  if (!rows || rows.length === 0) return []
+
+  // Enrich with job + helper names
+  const jobIds = [...new Set(rows.map(r => r.job_id).filter(Boolean))]
+  const helperIds = [...new Set(rows.map(r => r.helper_id).filter(Boolean))]
+
+  const [{ data: jobs }, { data: users }] = await Promise.all([
+    jobIds.length
+      ? supabase.from('jobs').select('id, job_id, job_name').in('id', jobIds)
+      : Promise.resolve({ data: [] }),
+    helperIds.length
+      ? supabase.from('users').select('id, user_name, user_type').in('id', helperIds)
+      : Promise.resolve({ data: [] }),
+  ])
+
+  const jobMap = {}
+  ;(jobs || []).forEach(j => { jobMap[j.id] = j })
+  const userMap = {}
+  ;(users || []).forEach(u => { userMap[u.id] = u })
+
+  return rows.map(r => ({
+    ...r,
+    job_code: jobMap[r.job_id]?.job_id || '—',
+    job_name: jobMap[r.job_id]?.job_name || '—',
+    worker_name: userMap[r.helper_id]?.user_name || '—',
+    worker_type: userMap[r.helper_id]?.user_type || null,
+  }))
+}
+
+/**
  * Calculate invoice amount from job schedule using the database function.
  * Does NOT create/update the invoice — just returns the computed amount.
  * Returns null if job schedule is incomplete or no rate is configured.

@@ -61,6 +61,7 @@ export default function MainLayout({ children, title }) {
     { label: 'My Day',                    path: '/helper/my-day',      show: isHelper },
     { label: 'Manage Users',              path: usersHubPath(role),    show: isAdmin || isSupervisor },
     { label: 'Manage Jobs',               path: jobsHubPath(role),     show: true },
+    { label: 'Manage Attendance',         path: isAdmin ? '/admin/manage-attendance' : '/supervisor/manage-attendance', show: isAdmin || isSupervisor },
     { label: 'Manage Job Specifications', path: jobSpecsHubPath(role), show: isAdmin || isSupervisor },
     { label: 'Manage Setup',              path: '/admin/setup',        show: isAdmin },
   ].filter(item => item.show)
@@ -68,6 +69,9 @@ export default function MainLayout({ children, title }) {
   const navItemActive = (item) => {
     if (item.label === 'My Day') {
       return location.pathname.startsWith('/helper/my-day')
+    }
+    if (item.label === 'Manage Attendance') {
+      return location.pathname.endsWith('/manage-attendance')
     }
     if (item.label === 'Manage Jobs') {
       if (isHelpee)     return location.pathname === '/helpee/home'     || location.pathname.startsWith('/helpee/jobs')
