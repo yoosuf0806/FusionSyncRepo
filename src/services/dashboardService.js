@@ -43,18 +43,38 @@ export async function getHelpeeDashboard(userId) {
     .eq('role', 'helpee')
 
   const jobIds = (jauRows || []).map(r => r.job_id)
-  if (jobIds.length === 0) return { completed: 0, ongoing: 0, payment_confirmed: 0 }
+  if (jobIds.length === 0) {
+    return {
+      completed: 0, ongoing: 0, payment_confirmed: 0,
+      amount_spent: 0, amount_payable: 0, total_invoiced: 0,
+    }
+  }
 
-  const { data: jobs } = await supabase
-    .from('jobs')
-    .select('status')
-    .in('id', jobIds)
+  const [{ data: jobs }, { data: invoices }] = await Promise.all([
+    supabase.from('jobs').select('status').in('id', jobIds),
+    supabase.from('invoices').select('amount, amount_paid').in('job_id', jobIds),
+  ])
 
   const all = jobs || []
+
+  // Account balance — derived from invoices, never stored.
+  let totalInvoiced = 0
+  let amountSpent = 0   // total already paid by the helpee
+  for (const inv of invoices || []) {
+    const amt = Number(inv.amount ?? 0)
+    const paid = Number(inv.amount_paid ?? 0)
+    totalInvoiced += amt
+    amountSpent += paid
+  }
+  const amountPayable = Math.max(totalInvoiced - amountSpent, 0)  // DERIVED
+
   return {
     ongoing:           all.filter(j => ONGOING_STATUSES.includes(j.status)).length,
     completed:         all.filter(j => COMPLETED_STATUSES.includes(j.status)).length,
     payment_confirmed: all.filter(j => j.status === 'payment_confirmed' || j.status === 'job_closed').length,
+    amount_spent:      Math.round(amountSpent * 100) / 100,
+    amount_payable:    Math.round(amountPayable * 100) / 100,
+    total_invoiced:    Math.round(totalInvoiced * 100) / 100,
   }
 }
 

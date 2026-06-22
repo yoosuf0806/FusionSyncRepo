@@ -9,13 +9,25 @@ const adminClient = (_svcKey && _svcKey.startsWith('eyJ'))
   ? createClient(_url, _svcKey, { auth: { autoRefreshToken: false, persistSession: false } })
   : null
 
-/** Map DB invoice row (amount/currency/notes/invoice_attachment_url) to UI fields */
+/** Map DB invoice row (amount/currency/notes/invoice_attachment_url) to UI fields.
+ *  amount_payable is DERIVED here (amount − amount_paid) and never stored. */
 export function normalizeInvoiceRow(row) {
   if (!row) return null
+  const amount = Number(row.amount ?? 0)
+  const amountPaid = Number(row.amount_paid ?? 0)
+  const payable = Math.max(amount - amountPaid, 0)
+  let paymentState = 'unbilled'
+  if (amount > 0) {
+    if (amountPaid <= 0) paymentState = 'unpaid'
+    else if (amountPaid >= amount) paymentState = 'paid'
+    else paymentState = 'partial'
+  }
   return {
     ...row,
     invoice_amount: row.invoice_amount ?? row.amount ?? '',
-    invoice_currency: row.invoice_currency ?? row.currency ?? 'AUD',
+    invoice_amount_paid: row.amount_paid ?? 0,
+    invoice_amount_payable: payable,   // DERIVED — not stored
+    invoice_payment_state: paymentState,
     invoice_notes: row.invoice_notes ?? row.notes ?? '',
     invoice_date: row.invoice_date ?? '',
     invoice_status: row.invoice_status ?? 'draft',
@@ -27,9 +39,12 @@ function invoiceToDbPayload(invoiceData) {
   const raw = invoiceData.invoice_amount
   const n = raw === '' || raw == null ? NaN : Number(raw)
   const amount = Number.isFinite(n) ? n : null
+  const paidRaw = invoiceData.invoice_amount_paid
+  const paidN = paidRaw === '' || paidRaw == null ? 0 : Number(paidRaw)
+  const amount_paid = Number.isFinite(paidN) && paidN >= 0 ? paidN : 0
   return {
     amount,
-    currency: invoiceData.invoice_currency || 'AUD',
+    amount_paid,
     invoice_date: invoiceData.invoice_date || null,
     notes: invoiceData.invoice_notes ?? null,
     invoice_status: invoiceData.invoice_status || 'draft',
@@ -81,6 +96,7 @@ const INVOICE_SELECT = [
   'id',
   'job_id',
   'amount',
+  'amount_paid',
   'currency',
   'notes',
   'invoice_date',

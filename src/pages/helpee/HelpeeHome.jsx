@@ -8,7 +8,7 @@ import LoadingSpinner from '../../components/LoadingSpinner'
 import EmptyState from '../../components/EmptyState'
 import ErrorBanner from '../../components/ErrorBanner'
 import { JOB_STATUS_LABELS } from '../../constants/jobStatuses'
-import { jobDetailPath, jobNewPath } from '../../constants/jobPaths'
+import { jobDetailPath, jobNewPath, jobsHubPath } from '../../constants/jobPaths'
 
 export default function HelpeeHome() {
   const navigate = useNavigate()
@@ -80,6 +80,36 @@ export default function HelpeeHome() {
           </div>
         )}
       </div>
+
+      {/* ── Account Balance — financial summary ── */}
+      <section className="mt-10 pt-8 border-t border-gray-200">
+        <h2 className="text-xs font-semibold text-hh-placeholder uppercase tracking-widest mb-4">Account Balance</h2>
+        <div className="flex flex-wrap gap-3">
+          {[
+            { key: 'spent',   label: 'Amount Spent',          value: stats?.amount_spent,   prefix: true },
+            { key: 'payable', label: 'Pending Amount Payable', value: stats?.amount_payable, prefix: true, accent: true, clickable: true },
+          ].map(card => (
+            <div
+              key={card.key}
+              role={card.clickable ? 'button' : undefined}
+              tabIndex={card.clickable ? 0 : undefined}
+              onClick={card.clickable ? () => navigate(jobsHubPath(role)) : undefined}
+              onKeyDown={card.clickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') navigate(jobsHubPath(role)) } : undefined}
+              className={`bg-gray-800 rounded-xl px-5 py-4 flex flex-col gap-1 min-w-[160px] flex-1
+                border border-gray-700 ${card.clickable ? 'cursor-pointer hover:border-hh-green transition-colors' : ''}`}
+            >
+              <span className="text-xs font-medium text-gray-400 leading-tight tracking-wide">
+                {card.label}{card.clickable ? ' ›' : ''}
+              </span>
+              <span className={`text-2xl font-bold leading-tight ${card.accent ? 'text-hh-green' : 'text-white'}`}>
+                {stats === null
+                  ? <span className="w-5 h-5 border-2 border-gray-500 border-t-gray-300 rounded-full animate-spin inline-block align-middle" />
+                  : `${(card.value ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+              </span>
+            </div>
+          ))}
+        </div>
+      </section>
 
       {/* ── Overview — below quick actions with clear separation ── */}
       <section className="mt-10 pt-8 border-t border-gray-200">
