@@ -7,6 +7,7 @@ import {
   saveInvoice, uploadInvoiceAttachment, upsertAssociatedUser, removeAssociatedUser,
   getAttendanceForJob, getAttendanceForHelper, upsertAttendanceRow, updateAttendanceStatus,
   getJobMessages, postJobMessage, notifyHelpersAssignedToJob,
+  autoCreateOrUpdateInvoice,
 } from '../../services/jobService'
 import { getJobSpecs, getQuestionsForSpec } from '../../services/jobSpecService'
 import { getUsers } from '../../services/userService'
@@ -321,6 +322,7 @@ export default function JobForm() {
     job_date: '', job_start_time: '',
     // frequent fields
     job_from_date: '', job_to_date: '', job_end_time: '',
+    job_days: 'weekdays_and_weekends',
     // shared
     job_location: '', job_requester_id: null, department_id: null,
     pricing_structure: 'daily',
@@ -504,6 +506,7 @@ export default function JobForm() {
         job_from_date: job.job_from_date || '',
         job_to_date: job.job_to_date || '',
         job_end_time: job.job_end_time || '',
+        job_days: job.job_days || 'weekdays_and_weekends',
         job_location: job.job_location || '',
         job_requester_id: job.job_requester_id,
         department_id: job.department_id,
@@ -624,6 +627,8 @@ export default function JobForm() {
         if (canManage && newHelperIds.length > 0) {
           await notifyHelpersAssignedToJob(dbJobId, newHelperIds, form.job_name)
         }
+        // Auto-calculate invoice based on updated schedule/workers
+        await autoCreateOrUpdateInvoice(dbJobId)
         // Auto-advance job status when supervisor or helpers are first assigned
         if (canManage) {
           let nextStatus = null
@@ -641,7 +646,11 @@ export default function JobForm() {
         }
         prevHelperIdsRef.current = helpers.map(h => h.id)
       } else {
-        await createJob({ ...form, job_category: category }, answers, assocUsers, role)
+        const result = await createJob({ ...form, job_category: category }, answers, assocUsers, role)
+        // Auto-calculate invoice based on job schedule and assigned workers
+        if (result && result.id) {
+          await autoCreateOrUpdateInvoice(result.id)
+        }
       }
       navigate(jobsHubPath(role))
     } catch (e) {
@@ -821,6 +830,14 @@ export default function JobForm() {
                 <FormRow label="Job End Time" labelWidth="w-40">
                   <input type="time" className={inputClass} value={form.job_end_time}
                     onChange={e => setField('job_end_time', e.target.value)} readOnly={isJobFieldsReadOnly} />
+                </FormRow>
+                <FormRow label="Job Days" labelWidth="w-40">
+                  <select className={inputClass} value={form.job_days}
+                    onChange={e => setField('job_days', e.target.value)} disabled={isJobFieldsReadOnly}>
+                    <option value="weekdays_only">Weekdays Only (Mon-Fri)</option>
+                    <option value="weekends_only">Weekends Only (Sat-Sun)</option>
+                    <option value="weekdays_and_weekends">Weekdays and Weekends (All Days)</option>
+                  </select>
                 </FormRow>
                 <FormRow label="Job Location" labelWidth="w-40">
                   <input className={inputClass} value={form.job_location}
