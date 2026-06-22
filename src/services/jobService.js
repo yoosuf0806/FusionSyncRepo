@@ -921,6 +921,74 @@ export async function getJobsForCheckin(userId, attendanceDate) {
 }
 
 /**
+ * Get upcoming (future) scheduled jobs for a helper/supervisor.
+ * Covers ALL future scheduled days. Recurring jobs are returned grouped
+ * (one entry per job, with a date range), not one row per day.
+ * Excludes today (that's handled by getJobsForCheckin) and closed/cancelled jobs.
+ */
+export async function getUpcomingJobsForUser(userId, fromDate) {
+  const today = fromDate || new Date().toISOString().slice(0, 10)
+
+  const { data: assoc, error: assocErr } = await supabase
+    .from('job_associated_users')
+    .select('job_id, role')
+    .eq('user_id', userId)
+    .in('role', ['helper', 'supervisor'])
+  if (assocErr) throw assocErr
+
+  const jobIds = [...new Set((assoc || []).map(a => a.job_id))]
+  if (jobIds.length === 0) return []
+
+  const { data: jobs, error: jobsErr } = await supabase
+    .from('jobs')
+    .select('*')
+    .in('id', jobIds)
+    .not('status', 'in', '(job_closed,cancelled,payment_confirmed)')
+  if (jobsErr) throw jobsErr
+
+  const upcoming = []
+  for (const job of jobs || []) {
+    const start = job.job_from_date
+    const end = job.job_to_date || job.job_from_date
+    if (!start) continue
+
+    if (job.job_category === 'frequent') {
+      // Recurring — show as a grouped range if any part is in the future
+      if (end && end > today) {
+        // Range starts either at its own start (if future) or tomorrow
+        const displayStart = start > today ? start : nextDay(today)
+        upcoming.push({
+          ...job,
+          is_recurring: true,
+          upcoming_from: displayStart,
+          upcoming_to: end,
+        })
+      }
+    } else {
+      // One-time — show only if its single date is in the future
+      if (start > today) {
+        upcoming.push({
+          ...job,
+          is_recurring: false,
+          upcoming_from: start,
+          upcoming_to: start,
+        })
+      }
+    }
+  }
+
+  // Sort by soonest upcoming date
+  upcoming.sort((a, b) => (a.upcoming_from < b.upcoming_from ? -1 : 1))
+  return upcoming
+}
+
+function nextDay(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00')
+  d.setDate(d.getDate() + 1)
+  return d.toISOString().slice(0, 10)
+}
+
+/**
  * Calculate invoice amount from job schedule using the database function.
  * Does NOT create/update the invoice — just returns the computed amount.
  * Returns null if job schedule is incomplete or no rate is configured.

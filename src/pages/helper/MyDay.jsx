@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import {
-  getJobsForCheckin, checkInToJob, checkOutOfJob,
+  getJobsForCheckin, checkInToJob, checkOutOfJob, getUpcomingJobsForUser,
 } from '../../services/jobService'
 
 /* ────────────────────────────────────────────────────────────────────────
@@ -32,6 +32,7 @@ export default function MyDay() {
   const { user: dbUser } = useAuth()
   const navigate = useNavigate()
   const [jobs, setJobs] = useState(null)
+  const [upcoming, setUpcoming] = useState(null)
   const [tab, setTab] = useState('today')
   const [busyJobId, setBusyJobId] = useState(null)
   const [error, setError] = useState('')
@@ -51,6 +52,13 @@ export default function MyDay() {
   }
 
   useEffect(() => { load() }, [dbUser?.id])             // eslint-disable-line
+  useEffect(() => {
+    if (tab === 'upcoming' && upcoming === null && dbUser?.id) {
+      getUpcomingJobsForUser(dbUser.id, today)
+        .then(setUpcoming)
+        .catch(() => setUpcoming([]))
+    }
+  }, [tab, upcoming, dbUser?.id])                        // eslint-disable-line
   useEffect(() => {
     const i = setInterval(() => setTick(t => t + 1), 60000)  // tick every minute
     return () => clearInterval(i)
@@ -188,9 +196,25 @@ export default function MyDay() {
       )}
 
       {tab === 'upcoming' && (
-        <div className="text-center py-12 text-hh-placeholder">
-          <p className="text-sm">Upcoming jobs will appear here.</p>
-        </div>
+        <>
+          {upcoming === null && (
+            <div className="flex justify-center py-12">
+              <span className="w-7 h-7 border-2 border-gray-300 border-t-hh-green rounded-full animate-spin" />
+            </div>
+          )}
+          {upcoming !== null && upcoming.length === 0 && (
+            <div className="text-center py-12 text-hh-placeholder">
+              <p className="text-sm">No upcoming jobs scheduled.</p>
+            </div>
+          )}
+          {upcoming !== null && upcoming.length > 0 && (
+            <div className="space-y-3">
+              {upcoming.map(job => (
+                <UpcomingJobCard key={job.id} job={job} />
+              ))}
+            </div>
+          )}
+        </>
       )}
     </div>
   )
@@ -245,7 +269,46 @@ function FeaturedJobCard({ job, busy, onCheckOut, tick }) {
   )
 }
 
-/* ── Compact card for remaining/not-started jobs ── */
+/* ── Upcoming card — read-only preview, no check-in (can't check into the future) ── */
+function UpcomingJobCard({ job }) {
+  const fmtDate = (d) => {
+    if (!d) return ''
+    try {
+      return new Date(d + 'T00:00:00').toLocaleDateString(undefined,
+        { weekday: 'short', month: 'short', day: 'numeric' })
+    } catch { return d }
+  }
+  const daysLabel = {
+    weekdays_only: 'Weekdays',
+    weekends_only: 'Weekends',
+    weekdays_and_weekends: 'Every day',
+  }[job.job_days] || ''
+
+  return (
+    <div className="bg-white rounded-xl shadow-sm p-3 flex items-center gap-3">
+      <div className="w-16 h-16 rounded-lg bg-gradient-to-br from-blue-50 to-green-50 shrink-0
+        flex items-center justify-center text-hh-green font-bold text-xs">
+        {job.job_id?.replace('JOB-', '#') || 'JOB'}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold text-hh-text truncate">{job.job_name}</h3>
+          <span className="text-xs text-hh-placeholder shrink-0 ml-2">
+            {fmtClock(job.job_start_time)}
+          </span>
+        </div>
+        {job.job_location && (
+          <p className="text-xs text-hh-placeholder truncate">{job.job_location}</p>
+        )}
+        <p className="text-xs text-hh-green font-medium mt-1">
+          {job.is_recurring
+            ? `${daysLabel} until ${fmtDate(job.upcoming_to)}`
+            : fmtDate(job.upcoming_from)}
+        </p>
+      </div>
+    </div>
+  )
+}
 function CompactJobCard({ job, busy, onCheckIn, onCheckOut, onOpen }) {
   const state = job.checkin_state
   return (
