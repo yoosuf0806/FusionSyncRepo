@@ -51,22 +51,36 @@ export async function getHelpeeDashboard(userId) {
   }
 
   const [{ data: jobs }, { data: invoices }] = await Promise.all([
-    supabase.from('jobs').select('status').in('id', jobIds),
-    supabase.from('invoices').select('amount, amount_paid').in('job_id', jobIds),
+    supabase.from('jobs').select('id, status').in('id', jobIds),
+    supabase.from('invoices').select('job_id, amount').in('job_id', jobIds),
   ])
 
   const all = jobs || []
 
-  // Account balance — derived from invoices, never stored.
+  // Build a map of job status for quick lookup
+  const jobStatusMap = {}
+  for (const job of all) {
+    jobStatusMap[job.id] = job.status
+  }
+
+  // Account balance — based on job status, not amount_paid.
+  // amount_spent = invoices for jobs that are payment_confirmed or job_closed
+  // amount_payable = invoices for jobs still in progress
+  let amountSpent = 0
+  let amountPayable = 0
   let totalInvoiced = 0
-  let amountSpent = 0   // total already paid by the helpee
+
   for (const inv of invoices || []) {
     const amt = Number(inv.amount ?? 0)
-    const paid = Number(inv.amount_paid ?? 0)
+    const jobStatus = jobStatusMap[inv.job_id]
     totalInvoiced += amt
-    amountSpent += paid
+
+    if (jobStatus === 'payment_confirmed' || jobStatus === 'job_closed') {
+      amountSpent += amt
+    } else {
+      amountPayable += amt
+    }
   }
-  const amountPayable = Math.max(totalInvoiced - amountSpent, 0)  // DERIVED
 
   return {
     ongoing:           all.filter(j => ONGOING_STATUSES.includes(j.status)).length,
