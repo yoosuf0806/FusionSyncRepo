@@ -751,3 +751,78 @@ export async function updateAttendanceStatus(rowId, newStatus, rejectionReason) 
 
   return data
 }
+
+// ════════════════════════════════════════════════════════════════════════
+// Invoice auto-calculation based on job schedule (Phase 1b)
+// ════════════════════════════════════════════════════════════════════════
+
+/**
+ * Calculate invoice amount from job schedule using the database function.
+ * Does NOT create/update the invoice — just returns the computed amount.
+ * Returns null if job schedule is incomplete or no rate is configured.
+ */
+export async function calculateInvoiceAmountFromJobSchedule(jobId) {
+  const { data, error } = await supabase.rpc('calc_invoice_amount_from_job', {
+    p_job_id: jobId,
+  })
+  if (error) {
+    console.warn('calculateInvoiceAmountFromJobSchedule error:', error.message)
+    return null
+  }
+  return data
+}
+
+/**
+ * Create or update an invoice for a job, auto-calculating amount from schedule.
+ * Called when a job is created, when workers are assigned, or when dates are changed.
+ * If an invoice already exists for the job, updates it. Otherwise creates a new one.
+ */
+export async function autoCreateOrUpdateInvoice(jobId) {
+  try {
+    // Calculate the amount from job schedule
+    const amount = await calculateInvoiceAmountFromJobSchedule(jobId)
+    if (amount === null) {
+      console.warn(`autoCreateOrUpdateInvoice: no invoice amount for job ${jobId} — job schedule may be incomplete`)
+      return null
+    }
+
+    // Check if invoice already exists
+    const { data: existing, error: selectError } = await supabase
+      .from('invoices')
+      .select('id')
+      .eq('job_id', jobId)
+      .maybeSingle()
+
+    if (selectError) throw selectError
+
+    if (existing && existing.id) {
+      // Update existing invoice with new calculated amount
+      const { data: updated, error: updateError } = await supabase
+        .from('invoices')
+        .update({ amount: amount })
+        .eq('id', existing.id)
+        .select('*')
+        .single()
+      if (updateError) throw updateError
+      console.log(`Updated invoice for job ${jobId}: amount = ${amount}`)
+      return updated
+    } else {
+      // Create new invoice
+      const { data: created, error: insertError } = await supabase
+        .from('invoices')
+        .insert({
+          job_id: jobId,
+          amount: amount,
+          invoice_status: 'draft',
+        })
+        .select('*')
+        .single()
+      if (insertError) throw insertError
+      console.log(`Created invoice for job ${jobId}: amount = ${amount}`)
+      return created
+    }
+  } catch (err) {
+    console.error('autoCreateOrUpdateInvoice error:', err.message)
+    return null
+  }
+}
