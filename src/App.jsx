@@ -29,6 +29,7 @@ import ResetPassword  from './pages/shared/ResetPassword'
 
 // ── Helpee home ───────────────────────────────────────────────────────────
 import HelpeeHome from './pages/helpee/HelpeeHome'
+import MyDay from './pages/helper/MyDay'
 
 // ── Role arrays ───────────────────────────────────────────────────────────
 const ADMIN_ONLY      = ['admin']
@@ -148,6 +149,8 @@ export default function App() {
           ──────────────────────────────────────────────────────────────*/}
           <Route path="/helper/home"
             element={<RoleRoute allowedRoles={HELPER_ONLY}><AdminHome /></RoleRoute>} />
+          <Route path="/helper/my-day"
+            element={<RoleRoute allowedRoles={HELPER_ONLY}><MyDay /></RoleRoute>} />
           <Route path="/helper/manage-jobs"
             element={<RoleRoute allowedRoles={HELPER_ONLY}><ManageJobs /></RoleRoute>} />
           <Route path="/helper/jobs/:id"

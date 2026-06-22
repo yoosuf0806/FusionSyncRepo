@@ -753,8 +753,172 @@ export async function updateAttendanceStatus(rowId, newStatus, rejectionReason) 
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// Invoice auto-calculation based on job schedule (Phase 1b)
+// Check-in / Check-out (Phase 3 — per-job, no approval)
 // ════════════════════════════════════════════════════════════════════════
+
+/**
+ * Try to capture the device's GPS location. Resolves to {lat, lng} or null.
+ * Never rejects — a denied/failed permission resolves to null so check-in
+ * is never blocked (low-literacy workers must not be stuck on a popup).
+ */
+export function captureLocation(timeoutMs = 8000) {
+  return new Promise((resolve) => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      resolve(null)
+      return
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      () => resolve(null),                       // denied or error → null
+      { enableHighAccuracy: true, timeout: timeoutMs, maximumAge: 0 }
+    )
+  })
+}
+
+/**
+ * Worker/supervisor checks IN to a job for today.
+ * Auto-captures timestamp + GPS. Creates the attendance row if needed.
+ * Location null → row flagged location_missing, check-in still succeeds.
+ */
+export async function checkInToJob(jobId, helperId, { attendanceDate } = {}) {
+  const now = new Date()
+  const date = attendanceDate || now.toISOString().slice(0, 10)
+  const loc = await captureLocation()
+
+  const payload = {
+    job_id: jobId,
+    helper_id: helperId,
+    attendance_date: date,
+    checkin_at: now.toISOString(),
+    checkin_latitude: loc?.lat ?? null,
+    checkin_longitude: loc?.lng ?? null,
+    location_missing: loc === null,
+  }
+
+  // Upsert on (job_id, attendance_date, helper_id)
+  const { data, error } = await supabase
+    .from('job_attendance')
+    .upsert(payload, { onConflict: 'job_id,attendance_date,helper_id' })
+    .select('*')
+    .single()
+  if (error) throw error
+  return data
+}
+
+/**
+ * Worker/supervisor checks OUT of a job for today.
+ * Auto-captures timestamp + GPS. Updates the existing checked-in row.
+ */
+export async function checkOutOfJob(rowId, { } = {}) {
+  const now = new Date()
+  const loc = await captureLocation()
+
+  const payload = {
+    checkout_at: now.toISOString(),
+    checkout_latitude: loc?.lat ?? null,
+    checkout_longitude: loc?.lng ?? null,
+  }
+  // If checkout location is missing, ensure the flag is set too
+  if (loc === null) payload.location_missing = true
+
+  const { data, error } = await supabase
+    .from('job_attendance')
+    .update(payload)
+    .eq('id', rowId)
+    .select('*')
+    .single()
+  if (error) throw error
+  return data
+}
+
+/**
+ * Supervisor/Admin corrects an attendance record (forgotten checkout,
+ * wrong tap, etc.). Preserves the original values in corrected_from for audit.
+ */
+export async function correctAttendanceRecord(rowId, corrections, correctedByUserId, note) {
+  // Fetch current row to snapshot original values
+  const { data: current, error: fetchErr } = await supabase
+    .from('job_attendance')
+    .select('*')
+    .eq('id', rowId)
+    .single()
+  if (fetchErr) throw fetchErr
+
+  const snapshot = {
+    checkin_at: current.checkin_at,
+    checkout_at: current.checkout_at,
+    in_time: current.in_time,
+    out_time: current.out_time,
+    att_status: current.att_status,
+    total_hours: current.total_hours,
+  }
+
+  const payload = {
+    ...corrections,                       // e.g. { checkin_at, checkout_at }
+    corrected_by: correctedByUserId,
+    corrected_at: new Date().toISOString(),
+    corrected_from: snapshot,
+    correction_note: note ?? null,
+  }
+
+  const { data, error } = await supabase
+    .from('job_attendance')
+    .update(payload)
+    .eq('id', rowId)
+    .select('*')
+    .single()
+  if (error) throw error
+  return data
+}
+
+/**
+ * Get the jobs a helper/supervisor should see for check-in/out on a given date.
+ * Returns active jobs they're assigned to, with any existing attendance row
+ * for that date merged in (so the UI knows check-in/out state).
+ */
+export async function getJobsForCheckin(userId, attendanceDate) {
+  const date = attendanceDate || new Date().toISOString().slice(0, 10)
+
+  // Jobs the user is assigned to (helper or supervisor)
+  const { data: assoc, error: assocErr } = await supabase
+    .from('job_associated_users')
+    .select('job_id, role')
+    .eq('user_id', userId)
+    .in('role', ['helper', 'supervisor'])
+  if (assocErr) throw assocErr
+
+  const jobIds = [...new Set((assoc || []).map(a => a.job_id))]
+  if (jobIds.length === 0) return []
+
+  // Fetch the actual jobs, active statuses only
+  const { data: jobs, error: jobsErr } = await supabase
+    .from('jobs')
+    .select('*')
+    .in('id', jobIds)
+    .not('status', 'in', '(job_closed,cancelled,payment_confirmed)')
+  if (jobsErr) throw jobsErr
+
+  // Fetch existing attendance rows for this user + date
+  const { data: attRows } = await supabase
+    .from('job_attendance')
+    .select('*')
+    .eq('helper_id', userId)
+    .eq('attendance_date', date)
+    .in('job_id', jobIds)
+
+  const attByJob = {}
+  ;(attRows || []).forEach(r => { attByJob[r.job_id] = r })
+
+  // Merge: each job + its attendance state for the date
+  return (jobs || []).map(job => ({
+    ...job,
+    attendance: attByJob[job.id] || null,
+    checkin_state: !attByJob[job.id] ? 'not_started'
+      : attByJob[job.id].checkout_at ? 'completed'
+      : attByJob[job.id].checkin_at ? 'checked_in'
+      : 'not_started',
+  }))
+}
 
 /**
  * Calculate invoice amount from job schedule using the database function.
