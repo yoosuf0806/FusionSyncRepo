@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
+import MainLayout from '../../layouts/MainLayout'
 import {
   getJobsForCheckin, checkInToJob, checkOutOfJob, getUpcomingJobsForUser,
 } from '../../services/jobService'
@@ -115,6 +116,7 @@ export default function MyDay() {
   const dateLabel = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })
 
   return (
+    <MainLayout title="My Day">
     <div className="min-h-screen bg-hh-mint px-4 py-6 max-w-md mx-auto">
       {/* Header */}
       <div className="flex items-start justify-between mb-4">
@@ -221,6 +223,7 @@ export default function MyDay() {
         </>
       )}
     </div>
+    </MainLayout>
   )
 }
 

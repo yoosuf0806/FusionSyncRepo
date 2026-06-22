@@ -1,8 +1,12 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
+import MainLayout from '../../layouts/MainLayout'
 import {
   getAllAttendanceRecords, correctAttendanceRecord,
 } from '../../services/jobService'
+import {
+  exportAttendanceCSV, exportAttendanceExcel, exportAttendancePDF,
+} from '../../utils/attendanceExport'
 
 /* ────────────────────────────────────────────────────────────────────────
    ManageAttendance — internal team (admin/supervisor) view of all
@@ -64,6 +68,7 @@ export default function ManageAttendance() {
   })
 
   return (
+    <MainLayout title="Manage Attendance">
     <div className="px-6 py-6 max-w-6xl mx-auto">
       <h1 className="text-2xl font-bold text-hh-text mb-1">Manage Attendance</h1>
       <p className="text-sm text-hh-placeholder mb-5">
@@ -91,6 +96,25 @@ export default function ManageAttendance() {
       </div>
 
       {error && <div className="bg-red-50 text-hh-error text-sm rounded-hh px-3 py-2 mb-4">{error}</div>}
+
+      {/* Export buttons */}
+      {rows !== null && filtered.length > 0 && (
+        <div className="flex items-center gap-2 mb-3">
+          <span className="text-xs text-hh-placeholder mr-1">Export {filtered.length} record{filtered.length > 1 ? 's' : ''}:</span>
+          <button onClick={() => exportAttendanceCSV(filtered)}
+            className="text-xs font-medium px-3 py-1.5 rounded-hh border border-gray-300 hover:border-hh-green hover:text-hh-green transition-colors">
+            CSV
+          </button>
+          <button onClick={() => exportAttendanceExcel(filtered)}
+            className="text-xs font-medium px-3 py-1.5 rounded-hh border border-gray-300 hover:border-hh-green hover:text-hh-green transition-colors">
+            Excel
+          </button>
+          <button onClick={() => exportAttendancePDF(filtered)}
+            className="text-xs font-medium px-3 py-1.5 rounded-hh border border-gray-300 hover:border-hh-green hover:text-hh-green transition-colors">
+            PDF
+          </button>
+        </div>
+      )}
 
       {rows === null ? (
         <div className="flex justify-center py-16">
@@ -184,6 +208,7 @@ export default function ManageAttendance() {
         />
       )}
     </div>
+    </MainLayout>
   )
 }
 
