@@ -210,7 +210,11 @@ export default function MyDay() {
           {upcoming !== null && upcoming.length > 0 && (
             <div className="space-y-3">
               {upcoming.map(job => (
-                <UpcomingJobCard key={job.id} job={job} />
+                <UpcomingJobCard
+                  key={job.id}
+                  job={job}
+                  onOpen={() => navigate(`/helper/jobs/${job.id}`)}
+                />
               ))}
             </div>
           )}
@@ -269,8 +273,8 @@ function FeaturedJobCard({ job, busy, onCheckOut, tick }) {
   )
 }
 
-/* ── Upcoming card — read-only preview, no check-in (can't check into the future) ── */
-function UpcomingJobCard({ job }) {
+/* ── Upcoming card — read-only preview, tap to view full job details (read-only) ── */
+function UpcomingJobCard({ job, onOpen }) {
   const fmtDate = (d) => {
     if (!d) return ''
     try {
@@ -285,7 +289,14 @@ function UpcomingJobCard({ job }) {
   }[job.job_days] || ''
 
   return (
-    <div className="bg-white rounded-xl shadow-sm p-3 flex items-center gap-3">
+    <div
+      onClick={onOpen}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onOpen() }}
+      className="bg-white rounded-xl shadow-sm p-3 flex items-center gap-3
+        cursor-pointer hover:shadow-md active:scale-[0.99] transition-all"
+    >
       <div className="w-16 h-16 rounded-lg bg-gradient-to-br from-blue-50 to-green-50 shrink-0
         flex items-center justify-center text-hh-green font-bold text-xs">
         {job.job_id?.replace('JOB-', '#') || 'JOB'}
@@ -306,6 +317,7 @@ function UpcomingJobCard({ job }) {
             : fmtDate(job.upcoming_from)}
         </p>
       </div>
+      <span className="text-hh-placeholder shrink-0">›</span>
     </div>
   )
 }
