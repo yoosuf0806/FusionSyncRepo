@@ -392,10 +392,10 @@ function ApplyLeaveModal({ userId, onClose, onSubmitted }) {
   const [err, setErr] = useState('')
 
   const REASONS = [
-    { key: 'sick', label: 'Sick', icon: '🤒' },
-    { key: 'personal', label: 'Personal', icon: '🏠' },
-    { key: 'emergency', label: 'Emergency', icon: '🚨' },
-    { key: 'other', label: 'Other', icon: '📋' },
+    { key: 'sick', label: 'Sick' },
+    { key: 'personal', label: 'Personal' },
+    { key: 'emergency', label: 'Emergency' },
+    { key: 'other', label: 'Other' },
   ]
   const DURATIONS = [
     { key: 'full_day', label: 'Full Day' },
@@ -415,52 +415,62 @@ function ApplyLeaveModal({ userId, onClose, onSubmitted }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4"
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
       onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-5"
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm flex flex-col max-h-[90vh]"
         onClick={e => e.stopPropagation()}>
-        <h2 className="text-lg font-bold text-hh-text mb-4">Apply for Leave</h2>
 
-        <label className="block text-xs text-hh-placeholder mb-1">Date</label>
-        <input type="date" value={leaveDate} onChange={e => setLeaveDate(e.target.value)}
-          className="form-cell px-3 py-2 text-sm w-full mb-4" />
-
-        <label className="block text-xs text-hh-placeholder mb-2">Reason</label>
-        <div className="grid grid-cols-2 gap-2 mb-4">
-          {REASONS.map(r => (
-            <button key={r.key} onClick={() => setReason(r.key)}
-              className={`flex items-center gap-2 px-3 py-3 rounded-xl border text-sm font-medium
-                transition-colors ${reason === r.key
-                  ? 'border-hh-green bg-green-50 text-hh-green'
-                  : 'border-gray-200 text-hh-text'}`}>
-              <span className="text-lg">{r.icon}</span> {r.label}
-            </button>
-          ))}
+        {/* Header (fixed) */}
+        <div className="px-5 pt-5 pb-3 border-b border-gray-100 shrink-0">
+          <h2 className="text-lg font-bold text-hh-text">Apply for Leave</h2>
         </div>
 
-        <label className="block text-xs text-hh-placeholder mb-2">Duration</label>
-        <div className="space-y-2 mb-4">
-          {DURATIONS.map(d => (
-            <button key={d.key} onClick={() => setDuration(d.key)}
-              className={`w-full text-left px-3 py-2.5 rounded-xl border text-sm font-medium
-                transition-colors ${duration === d.key
-                  ? 'border-hh-green bg-green-50 text-hh-green'
-                  : 'border-gray-200 text-hh-text'}`}>
-              {d.label}
-            </button>
-          ))}
+        {/* Body (scrollable) */}
+        <div className="px-5 py-4 overflow-y-auto flex-1">
+          <label className="block text-xs text-hh-placeholder mb-1">Date</label>
+          <input type="date" value={leaveDate} onChange={e => setLeaveDate(e.target.value)}
+            className="form-cell px-3 py-2 text-sm w-full mb-4" />
+
+          <label className="block text-xs text-hh-placeholder mb-2">Reason</label>
+          <div className="grid grid-cols-2 gap-2 mb-4">
+            {REASONS.map(r => (
+              <button key={r.key} onClick={() => setReason(r.key)}
+                className={`px-3 py-3 rounded-xl border text-sm font-medium text-center
+                  transition-colors ${reason === r.key
+                    ? 'border-hh-green bg-green-50 text-hh-green'
+                    : 'border-gray-200 text-hh-text'}`}>
+                {r.label}
+              </button>
+            ))}
+          </div>
+
+          <label className="block text-xs text-hh-placeholder mb-2">Duration</label>
+          <div className="space-y-2 mb-4">
+            {DURATIONS.map(d => (
+              <button key={d.key} onClick={() => setDuration(d.key)}
+                className={`w-full text-left px-3 py-2.5 rounded-xl border text-sm font-medium
+                  transition-colors ${duration === d.key
+                    ? 'border-hh-green bg-green-50 text-hh-green'
+                    : 'border-gray-200 text-hh-text'}`}>
+                {d.label}
+              </button>
+            ))}
+          </div>
+
+          <label className="block text-xs text-hh-placeholder mb-1">Note (optional)</label>
+          <textarea value={note} onChange={e => setNote(e.target.value)}
+            placeholder="Add a note if needed"
+            className="form-cell px-3 py-2 text-sm w-full h-16 resize-none" />
+
+          {err && <div className="bg-red-50 text-hh-error text-sm rounded-lg px-3 py-2 mt-3">{err}</div>}
         </div>
 
-        <label className="block text-xs text-hh-placeholder mb-1">Note (optional)</label>
-        <textarea value={note} onChange={e => setNote(e.target.value)}
-          placeholder="Add a note if needed"
-          className="form-cell px-3 py-2 text-sm w-full h-16 resize-none mb-3" />
-
-        {err && <div className="bg-red-50 text-hh-error text-sm rounded-lg px-3 py-2 mb-3">{err}</div>}
-
-        <div className="flex gap-3">
+        {/* Footer (fixed, always visible) */}
+        <div className="px-5 py-4 border-t border-gray-100 flex gap-3 shrink-0">
           <button onClick={onClose}
-            className="flex-1 py-3 text-sm font-medium text-hh-placeholder">Cancel</button>
+            className="flex-1 py-3 text-sm font-medium text-hh-placeholder border border-gray-200 rounded-xl">
+            Cancel
+          </button>
           <button onClick={submit} disabled={saving}
             className="flex-1 bg-hh-green text-white font-bold py-3 rounded-xl disabled:opacity-50">
             {saving ? 'Submitting…' : 'Submit'}

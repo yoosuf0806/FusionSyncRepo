@@ -737,13 +737,15 @@ export async function updateAttendanceStatus(rowId, newStatus, rejectionReason) 
       : `Your attendance for ${date} on "${jobName}" was rejected${rejectionReason ? ': ' + rejectionReason : '. Please review and resubmit.'}`
 
     for (const h of (helpers || [])) {
-      await client.from('notifications').insert({
-        recipient_user_id: h.user_id,
-        title,
-        message,
-        notification_type: 'general',
-        related_job_id: jobId,
-      }).catch(() => {})
+      try {
+        await client.from('notifications').insert({
+          recipient_user_id: h.user_id,
+          title,
+          message,
+          notification_type: 'general',
+          related_job_id: jobId,
+        })
+      } catch { /* best-effort notification */ }
     }
   } catch (e) {
     console.warn('updateAttendanceStatus notification error:', e.message)

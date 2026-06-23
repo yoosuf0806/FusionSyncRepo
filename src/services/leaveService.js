@@ -10,6 +10,22 @@ const adminClient = (_svcKey && _svcKey.startsWith('eyJ'))
 
 const notifyClient = adminClient || supabase
 
+/**
+ * Insert notification rows without ever throwing — notifications are
+ * best-effort and must never break the primary action (apply/approve/replace).
+ * Supabase's query builder is a thenable, not a real Promise, so we must
+ * await it inside try/catch rather than chaining .catch() (which doesn't exist
+ * on the builder and throws "….catch is not a function").
+ */
+async function safeNotify(rows) {
+  if (!rows || (Array.isArray(rows) && rows.length === 0)) return
+  try {
+    await notifyClient.from('notifications').insert(rows)
+  } catch (e) {
+    console.warn('Notification insert failed (non-fatal):', e?.message || e)
+  }
+}
+
 /* ────────────────────────────────────────────────────────────────────────
    Half-day time windows (locked):
      first_half  = 08:00–13:00
@@ -128,14 +144,14 @@ export async function reviewLeaveRequest(leaveId, decision, reviewerId, reviewNo
   if (error) throw error
 
   // Notify the requester of the decision
-  await notifyClient.from('notifications').insert({
+  await safeNotify({
     recipient_user_id: leave.requester_id,
     title: status === 'approved' ? 'Leave Approved' : 'Leave Rejected',
     message: status === 'approved'
       ? `Your leave on ${leave.leave_date} has been approved.`
       : `Your leave on ${leave.leave_date} was rejected${reviewNote ? ': ' + reviewNote : '.'}`,
     notification_type: status === 'approved' ? 'leave_approved' : 'leave_rejected',
-  }).catch(() => {})
+  })
 
   // Cascade only on approval
   if (status === 'approved') {
@@ -194,12 +210,16 @@ export async function runReplacementCascade(leave) {
     if (!timeOverlaps(leaveWin.start, leaveWin.end, jobStart, jobEnd)) continue
 
     // Create the replacement flag for this job-date (idempotent on unique key)
-    await supabase.from('job_replacement_flags').upsert({
-      job_id: job.id,
-      flag_date: leave.leave_date,
-      absent_user_id: leave.requester_id,
-      leave_request_id: leave.id,
-    }, { onConflict: 'job_id,flag_date,absent_user_id' }).catch(() => {})
+    try {
+      await supabase.from('job_replacement_flags').upsert({
+        job_id: job.id,
+        flag_date: leave.leave_date,
+        absent_user_id: leave.requester_id,
+        leave_request_id: leave.id,
+      }, { onConflict: 'job_id,flag_date,absent_user_id' })
+    } catch (e) {
+      console.warn('Replacement flag upsert failed:', e?.message || e)
+    }
 
     // Notify customer (helpee) + internal (supervisor/admin)
     await notifyJobReplacementNeeded(job, leave)
@@ -248,9 +268,7 @@ async function notifyJobReplacementNeeded(job, leave) {
     })
   }
 
-  if (recipients.length) {
-    await notifyClient.from('notifications').insert(recipients).catch(() => {})
-  }
+  await safeNotify(recipients)
 }
 
 /**
@@ -271,11 +289,15 @@ export async function assignReplacement(flagId, replacementUserId, assignerName)
   if (error) throw error
 
   // Add the replacement worker to the job's associated users (if not already)
-  await supabase.from('job_associated_users').upsert({
-    job_id: flag.job_id,
-    user_id: replacementUserId,
-    role: 'helper',
-  }, { onConflict: 'job_id,user_id,role' }).catch(() => {})
+  try {
+    await supabase.from('job_associated_users').upsert({
+      job_id: flag.job_id,
+      user_id: replacementUserId,
+      role: 'helper',
+    }, { onConflict: 'job_id,user_id,role' })
+  } catch (e) {
+    console.warn('Associating replacement worker failed:', e?.message || e)
+  }
 
   // Names for the notification
   const [{ data: job }, { data: repl }] = await Promise.all([
@@ -309,9 +331,7 @@ export async function assignReplacement(flagId, replacementUserId, assignerName)
     notification_type: 'job_assigned',
     related_job_id: flag.job_id,
   })
-  if (recipients.length) {
-    await notifyClient.from('notifications').insert(recipients).catch(() => {})
-  }
+  await safeNotify(recipients)
 
   return flag
 }
@@ -371,7 +391,5 @@ async function notifyApproversOfLeaveRequest(requesterId, leave) {
     message: `${name} requested leave on ${leave.leave_date} (${leave.duration.replace('_', ' ')}).`,
     notification_type: 'leave_request',
   }))
-  if (rows.length) {
-    await notifyClient.from('notifications').insert(rows).catch(() => {})
-  }
+  await safeNotify(rows)
 }
