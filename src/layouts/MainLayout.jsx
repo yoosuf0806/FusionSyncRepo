@@ -60,7 +60,7 @@ export default function MainLayout({ children, title }) {
   const navItems = [
     { label: 'My Day',                    path: isSupervisor ? '/supervisor/my-day' : '/helper/my-day', show: isHelper || isSupervisor },
     { label: 'Manage Users',              path: usersHubPath(role),    show: isAdmin || isSupervisor },
-    { label: 'Manage Jobs',               path: jobsHubPath(role),     show: true },
+    { label: 'Manage Jobs',               path: jobsHubPath(role),     show: !isHelper },
     { label: 'Manage Attendance',         path: isAdmin ? '/admin/manage-attendance' : '/supervisor/manage-attendance', show: isAdmin || isSupervisor },
     { label: 'Manage Job Specifications', path: jobSpecsHubPath(role), show: isAdmin || isSupervisor },
     { label: 'Manage Setup',              path: '/admin/setup',        show: isAdmin },
