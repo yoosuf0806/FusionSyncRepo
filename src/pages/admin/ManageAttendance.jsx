@@ -39,6 +39,7 @@ const STATUS_STYLE = {
 
 export default function ManageAttendance() {
   const { user, isAdmin } = useAuth()
+  const viewerType = isAdmin ? 'admin' : 'supervisor'
   const [rows, setRows] = useState(null)
   const [error, setError] = useState('')
   const [dateFrom, setDateFrom] = useState(weekAgoStr())
@@ -49,7 +50,7 @@ export default function ManageAttendance() {
   const load = async () => {
     setRows(null); setError('')
     try {
-      const data = await getAllAttendanceRecords({ dateFrom, dateTo })
+      const data = await getAllAttendanceRecords({ dateFrom, dateTo, viewerType })
       setRows(data)
     } catch (e) {
       setError(e.message || 'Could not load attendance records')

@@ -137,6 +137,8 @@ export default function App() {
             element={<RoleRoute allowedRoles={SUPERVISOR_ONLY}><ManageJobs /></RoleRoute>} />
           <Route path="/supervisor/manage-attendance"
             element={<RoleRoute allowedRoles={SUPERVISOR_ONLY}><ManageAttendance /></RoleRoute>} />
+          <Route path="/supervisor/my-day"
+            element={<RoleRoute allowedRoles={SUPERVISOR_ONLY}><MyDay /></RoleRoute>} />
           <Route path="/supervisor/jobs/new"
             element={<RoleRoute allowedRoles={SUPERVISOR_ONLY}><JobForm /></RoleRoute>} />
           <Route path="/supervisor/jobs/new/frequent"

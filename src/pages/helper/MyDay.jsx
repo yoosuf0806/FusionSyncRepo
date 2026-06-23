@@ -30,7 +30,8 @@ function elapsed(fromIso) {
 }
 
 export default function MyDay() {
-  const { user: dbUser } = useAuth()
+  const { user: dbUser, isSupervisor } = useAuth()
+  const jobBasePath = isSupervisor ? '/supervisor/jobs' : '/helper/jobs'
   const navigate = useNavigate()
   const [jobs, setJobs] = useState(null)
   const [upcoming, setUpcoming] = useState(null)
@@ -190,7 +191,7 @@ export default function MyDay() {
                 busy={busyJobId === job.id}
                 onCheckIn={() => handleCheckIn(job)}
                 onCheckOut={() => handleCheckOut(job)}
-                onOpen={() => navigate(`/helper/jobs/${job.id}`)}
+                onOpen={() => navigate(`${jobBasePath}/${job.id}`)}
               />
             ))}
           </div>
@@ -215,7 +216,7 @@ export default function MyDay() {
                 <UpcomingJobCard
                   key={job.id}
                   job={job}
-                  onOpen={() => navigate(`/helper/jobs/${job.id}`)}
+                  onOpen={() => navigate(`${jobBasePath}/${job.id}`)}
                 />
               ))}
             </div>

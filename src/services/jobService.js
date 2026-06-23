@@ -991,9 +991,14 @@ function nextDay(dateStr) {
 /**
  * Fetch attendance records for the internal team (admin/supervisor) to review
  * and correct. Returns rows enriched with job name/id and helper name.
+ *
+ * Scoping (enforced here in UI + by RLS in DB):
+ *   • admin       → all rows (workers + supervisors)
+ *   • supervisor  → workers only (NOT other supervisors, NOT themselves)
+ *
  * Optional filters: dateFrom, dateTo, jobId, helperId.
  */
-export async function getAllAttendanceRecords({ dateFrom, dateTo, jobId, helperId } = {}) {
+export async function getAllAttendanceRecords({ dateFrom, dateTo, jobId, helperId, viewerType } = {}) {
   let query = supabase
     .from('job_attendance')
     .select('*')
@@ -1026,13 +1031,20 @@ export async function getAllAttendanceRecords({ dateFrom, dateTo, jobId, helperI
   const userMap = {}
   ;(users || []).forEach(u => { userMap[u.id] = u })
 
-  return rows.map(r => ({
+  let enriched = rows.map(r => ({
     ...r,
     job_code: jobMap[r.job_id]?.job_id || '—',
     job_name: jobMap[r.job_id]?.job_name || '—',
     worker_name: userMap[r.helper_id]?.user_name || '—',
     worker_type: userMap[r.helper_id]?.user_type || null,
   }))
+
+  // Supervisor sees workers (helpers) only — never other supervisors, never self.
+  if (viewerType === 'supervisor') {
+    enriched = enriched.filter(r => r.worker_type === 'helper')
+  }
+
+  return enriched
 }
 
 /**

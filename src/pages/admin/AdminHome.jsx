@@ -102,6 +102,7 @@ function SupervisorDashboard({ navigate }) {
       <section>
         <h2 className="text-sm font-semibold text-hh-placeholder uppercase tracking-wide mb-4">Quick Actions</h2>
         <div className="flex flex-wrap gap-6">
+          <NavCard label={['My', 'Day']}                       onClick={() => navigate('/supervisor/my-day')} />
           <NavCard label={['Manage', 'Users']}                 onClick={() => navigate('/supervisor/manage-users')} />
           <NavCard label={['Manage', 'Jobs']}                  onClick={() => navigate('/supervisor/manage-jobs')} />
           <NavCard label={['Manage', 'Attendance']}            onClick={() => navigate('/supervisor/manage-attendance')} />
