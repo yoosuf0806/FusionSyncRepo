@@ -901,6 +901,131 @@ export function isJobExpired(job, todayStr) {
   return lastDate < today
 }
 
+
+/* ────────────────────────────────────────────────────────────────────────
+   Capacity planning — detect scheduling conflicts before assigning a worker.
+──────────────────────────────────────────────────────────────────────────*/
+
+// Do two [start,end) time ranges overlap? ('HH:MM' strings)
+function _timeOverlaps(aS, aE, bS, bE) { return aS < bE && bS < aE }
+
+// Day-of-week set for a job_days filter, as a predicate on a JS date
+function _dayMatches(dateStr, jobDays) {
+  const dow = new Date(dateStr + 'T00:00:00').getDay()
+  const weekend = dow === 0 || dow === 6
+  if (jobDays === 'weekdays_only') return !weekend
+  if (jobDays === 'weekends_only') return weekend
+  return true
+}
+
+// Normalize a job's schedule into { dates:Set or range, start, end, days }
+function _jobWindow(job) {
+  const start = (job.job_start_time || '00:00').slice(0, 5)
+  const end = (job.job_end_time || job.job_start_time || '23:59').slice(0, 5)
+  if (job.job_category === 'frequent') {
+    return { from: job.job_from_date, to: job.job_to_date || job.job_from_date,
+             days: job.job_days, start, end, recurring: true }
+  }
+  return { from: job.job_date, to: job.job_date, days: null, start, end, recurring: false }
+}
+
+// Do two job schedules overlap on at least one concrete date AND in time?
+function _jobsOverlap(a, b) {
+  const wa = _jobWindow(a), wb = _jobWindow(b)
+  if (!wa.from || !wb.from) return false
+  // Date-range intersection
+  const lo = wa.from > wb.from ? wa.from : wb.from
+  const hi = wa.to < wb.to ? wa.to : wb.to
+  if (lo > hi) return false
+  // Time-of-day overlap
+  if (!_timeOverlaps(wa.start, wa.end, wb.start, wb.end)) return false
+  // At least one shared scheduled day within [lo,hi]
+  const loD = new Date(lo + 'T00:00:00'), hiD = new Date(hi + 'T00:00:00')
+  for (let d = new Date(loD); d <= hiD; d.setDate(d.getDate() + 1)) {
+    const ds = d.toISOString().slice(0, 10)
+    if (_dayMatches(ds, wa.days) && _dayMatches(ds, wb.days)) return true
+  }
+  return false
+}
+
+/**
+ * Check whether assigning `workerId` to a job with the given proposed schedule
+ * would conflict with (a) another job they're already assigned to, or
+ * (b) an approved leave. Returns { conflicts: [{type, label, detail}] }.
+ * Non-blocking — the caller decides whether to warn + allow override.
+ *
+ * proposed = { job_category, job_date, job_from_date, job_to_date, job_days,
+ *              job_start_time, job_end_time, excludeJobId }
+ */
+export async function checkWorkerAvailability(workerId, proposed) {
+  const conflicts = []
+  const pseudo = {
+    job_category: proposed.job_category,
+    job_date: proposed.job_date,
+    job_from_date: proposed.job_from_date,
+    job_to_date: proposed.job_to_date,
+    job_days: proposed.job_days,
+    job_start_time: proposed.job_start_time,
+    job_end_time: proposed.job_end_time,
+  }
+  const pw = _jobWindow(pseudo)
+  if (!pw.from) return { conflicts }  // no schedule yet → nothing to check
+
+  // (a) Other job assignments
+  const { data: assoc } = await supabase
+    .from('job_associated_users')
+    .select('job_id')
+    .eq('user_id', workerId)
+    .in('role', ['helper', 'supervisor'])
+  const otherJobIds = [...new Set((assoc || []).map(a => a.job_id))]
+    .filter(id => id !== proposed.excludeJobId)
+
+  if (otherJobIds.length) {
+    const { data: otherJobs } = await supabase
+      .from('jobs')
+      .select('id, job_id, job_name, job_category, job_date, job_from_date, job_to_date, job_days, job_start_time, job_end_time, status')
+      .in('id', otherJobIds)
+      .not('status', 'in', '(job_closed,cancelled,payment_confirmed)')
+
+    for (const oj of otherJobs || []) {
+      if (_jobsOverlap(pseudo, oj)) {
+        conflicts.push({
+          type: 'job',
+          label: oj.job_name || oj.job_id,
+          detail: pw.recurring
+            ? `overlapping schedule (${oj.job_from_date || oj.job_date} – ${oj.job_to_date || oj.job_date}, ${(oj.job_start_time||'').slice(0,5)}–${(oj.job_end_time||'').slice(0,5)})`
+            : `same date ${oj.job_date || oj.job_from_date}`,
+        })
+      }
+    }
+  }
+
+  // (b) Approved leave overlapping the proposed window
+  const { data: leaves } = await supabase
+    .from('leave_requests')
+    .select('leave_date, duration')
+    .eq('requester_id', workerId)
+    .eq('status', 'approved')
+    .gte('leave_date', pw.from)
+    .lte('leave_date', pw.to)
+
+  for (const lv of leaves || []) {
+    // Does the proposed job actually run on the leave date?
+    if (!_dayMatches(lv.leave_date, pw.days)) continue
+    const lvStart = lv.duration === 'second_half' ? '13:00' : '00:00'
+    const lvEnd = lv.duration === 'first_half' ? '13:00' : lv.duration === 'second_half' ? '18:00' : '23:59'
+    if (_timeOverlaps(pw.start, pw.end, lvStart, lvEnd)) {
+      conflicts.push({
+        type: 'leave',
+        label: 'Approved leave',
+        detail: `${lv.leave_date} (${lv.duration.replace('_', ' ')})`,
+      })
+    }
+  }
+
+  return { conflicts }
+}
+
 /**
  * Is a job actually scheduled to run on the given date?
  *   • One-time job  → date must equal job_date

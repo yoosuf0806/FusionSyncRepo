@@ -7,7 +7,7 @@ import {
   saveInvoice, uploadInvoiceAttachment, upsertAssociatedUser, removeAssociatedUser,
   getAttendanceForJob, getAttendanceForHelper, upsertAttendanceRow, updateAttendanceStatus,
   getJobMessages, postJobMessage, notifyHelpersAssignedToJob,
-  autoCreateOrUpdateInvoice,
+  autoCreateOrUpdateInvoice, checkWorkerAvailability,
 } from '../../services/jobService'
 import { getJobSpecs, getQuestionsForSpec } from '../../services/jobSpecService'
 import { getUsers } from '../../services/userService'
@@ -339,6 +339,7 @@ export default function JobForm() {
 
   const [helpee, setHelpee] = useState(null)
   const [helpers, setHelpers] = useState([])
+  const [pendingConflict, setPendingConflict] = useState(null) // { user, conflicts }
   const [supervisor, setSupervisor] = useState(null)
   const [associatedUsers, setAssociatedUsers] = useState([])
 
@@ -569,7 +570,7 @@ export default function JobForm() {
   const setAnswer = (qId, val) => setAnswers(prev => prev.map(a => a.question_id === qId ? { ...a, answer_text: val } : a))
   const setAttRow = (rowId, key, val) => setAttendance(prev => prev.map(r => r.id === rowId ? { ...r, [key]: val } : r))
 
-  const handleUserSelected = (user) => {
+  const handleUserSelected = async (user) => {
     const assocEntry = { role: userPickerRole, users: user }
     if (userPickerRole === 'helpee') {
       setHelpee(user)
@@ -577,8 +578,29 @@ export default function JobForm() {
     } else if (userPickerRole === 'helper') {
       // Only add if not already in the list
       if (!helpers.find(h => h.id === user.id)) {
-        setHelpers(prev => [...prev, user])
-        setAssociatedUsers(prev => [...prev, assocEntry])
+        // Capacity check — warn (but allow override) on schedule conflicts
+        try {
+          const { conflicts } = await checkWorkerAvailability(user.id, {
+            job_category: category,
+            job_date: form.job_date,
+            job_from_date: form.job_from_date,
+            job_to_date: form.job_to_date,
+            job_days: form.job_days,
+            job_start_time: form.job_start_time,
+            job_end_time: form.job_end_time,
+            excludeJobId: dbJobId || null,
+          })
+          if (conflicts && conflicts.length > 0) {
+            // Hold the add; show warning popup for confirm/cancel
+            setPendingConflict({ user, conflicts, assocEntry })
+            setUserPickerRole(null)
+            return
+          }
+        } catch (e) {
+          // Availability check is advisory — never block assignment on its failure
+          console.warn('Availability check failed:', e?.message || e)
+        }
+        addHelperConfirmed(user, assocEntry)
       }
     } else if (userPickerRole === 'supervisor') {
       setSupervisor(user)
@@ -586,6 +608,20 @@ export default function JobForm() {
     }
     setUserPickerRole(null)
   }
+
+  const addHelperConfirmed = (user, assocEntry) => {
+    setHelpers(prev => prev.find(h => h.id === user.id) ? prev : [...prev, user])
+    setAssociatedUsers(prev => [...prev, assocEntry])
+  }
+
+  // Supervisor clicked OK on the conflict warning → assign anyway
+  const confirmConflictAssign = () => {
+    if (pendingConflict) {
+      addHelperConfirmed(pendingConflict.user, pendingConflict.assocEntry)
+      setPendingConflict(null)
+    }
+  }
+  const cancelConflictAssign = () => setPendingConflict(null)
 
   const removeHelper = async (userId) => {
     try {
@@ -1107,6 +1143,56 @@ export default function JobForm() {
       {/* ── MODALS ───────────────────────────────────── */}
       {userPickerRole && (
         <UserPickerModal roleFilter={userPickerRole} onSelect={handleUserSelected} onClose={() => setUserPickerRole(null)} />
+      )}
+
+      {pendingConflict && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
+          onClick={cancelConflictAssign}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-5"
+            onClick={e => e.stopPropagation()}>
+            <div className="flex items-start gap-3 mb-3">
+              <span className="text-2xl">⚠️</span>
+              <div>
+                <h2 className="text-lg font-bold text-hh-text">Scheduling Conflict</h2>
+                <p className="text-sm text-hh-placeholder mt-0.5">
+                  {pendingConflict.user.user_name} may not be available for this job.
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4 space-y-2">
+              {pendingConflict.conflicts.map((c, i) => (
+                <div key={i} className="text-sm">
+                  {c.type === 'leave' ? (
+                    <span className="text-hh-text">
+                      <span className="font-semibold text-amber-700">On approved leave</span> — {c.detail}
+                    </span>
+                  ) : (
+                    <span className="text-hh-text">
+                      Already assigned to <span className="font-semibold text-amber-700">{c.label}</span>
+                      <span className="text-hh-placeholder"> — {c.detail}</span>
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <p className="text-sm text-hh-placeholder mb-4">
+              You can assign them anyway, or cancel and pick someone else.
+            </p>
+
+            <div className="flex gap-3 justify-end">
+              <button onClick={cancelConflictAssign}
+                className="px-4 py-2.5 text-sm font-medium text-hh-placeholder border border-gray-200 rounded-xl">
+                Cancel
+              </button>
+              <button onClick={confirmConflictAssign}
+                className="px-5 py-2.5 text-sm font-bold text-white bg-amber-600 rounded-xl hover:opacity-90">
+                Assign Anyway
+              </button>
+            </div>
+          </div>
+        </div>
       )}
       {showInvoiceModal && dbJobId && (
         <InvoiceModal jobId={dbJobId} existing={invoice}
