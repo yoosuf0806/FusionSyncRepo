@@ -11,12 +11,47 @@ import { supabase } from '../../supabase/client'
 
 /** Worker or supervisor submits a leave request. */
 export async function applyForLeave(requesterId, { leaveDate, duration, reason, note }) {
+  const newDuration = duration || 'full_day'
+
+  // One leave request per day — with a half-day exception:
+  //   • If a full-day request already exists → block any new request that day.
+  //   • If a half-day exists → only allow the OPPOSITE half (not the same half,
+  //     not a full day).
+  // Rejected requests don't count (the day is effectively free again).
+  const { data: existing, error: exErr } = await supabase
+    .from('leave_requests')
+    .select('id, duration, status')
+    .eq('requester_id', requesterId)
+    .eq('leave_date', leaveDate)
+    .neq('status', 'rejected')
+  if (exErr) throw exErr
+
+  if (existing && existing.length > 0) {
+    const hasFull = existing.some(r => r.duration === 'full_day')
+    const hasFirst = existing.some(r => r.duration === 'first_half')
+    const hasSecond = existing.some(r => r.duration === 'second_half')
+
+    if (hasFull) {
+      throw new Error('You already have a full-day leave request for this date.')
+    }
+    if (newDuration === 'full_day') {
+      throw new Error('You already have a half-day leave request for this date. You can only request the remaining half.')
+    }
+    if (newDuration === 'first_half' && hasFirst) {
+      throw new Error('You already requested the morning (first half) for this date.')
+    }
+    if (newDuration === 'second_half' && hasSecond) {
+      throw new Error('You already requested the afternoon (second half) for this date.')
+    }
+    // Otherwise: existing half + opposite half → allowed.
+  }
+
   const { data, error } = await supabase
     .from('leave_requests')
     .insert({
       requester_id: requesterId,
       leave_date: leaveDate,
-      duration: duration || 'full_day',
+      duration: newDuration,
       reason,
       note: note || null,
       status: 'pending',
