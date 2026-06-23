@@ -1,59 +1,12 @@
-import { createClient } from '@supabase/supabase-js'
 import { supabase } from '../../supabase/client'
-
-// Service-role client for privileged notification inserts to multiple recipients
-const _svcKey = import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY
-const _url = import.meta.env.VITE_SUPABASE_URL
-const adminClient = (_svcKey && _svcKey.startsWith('eyJ'))
-  ? createClient(_url, _svcKey, { auth: { autoRefreshToken: false, persistSession: false } })
-  : null
-
-const notifyClient = adminClient || supabase
-
-/**
- * Insert notification rows without ever throwing — notifications are
- * best-effort and must never break the primary action (apply/approve/replace).
- * Supabase's query builder is a thenable, not a real Promise, so we must
- * await it inside try/catch rather than chaining .catch() (which doesn't exist
- * on the builder and throws "….catch is not a function").
- */
-async function safeNotify(rows) {
-  if (!rows || (Array.isArray(rows) && rows.length === 0)) return
-  try {
-    await notifyClient.from('notifications').insert(rows)
-  } catch (e) {
-    console.warn('Notification insert failed (non-fatal):', e?.message || e)
-  }
-}
-
-/* ────────────────────────────────────────────────────────────────────────
-   Half-day time windows (locked):
-     first_half  = 08:00–13:00
-     second_half = 13:00–18:00
-     full_day    = 00:00–23:59
-──────────────────────────────────────────────────────────────────────────*/
-const LEAVE_WINDOWS = {
-  full_day:    { start: '00:00', end: '23:59' },
-  first_half:  { start: '08:00', end: '13:00' },
-  second_half: { start: '13:00', end: '18:00' },
-}
-
-/** Does [aStart,aEnd) overlap [bStart,bEnd)?  times are 'HH:MM' strings */
-function timeOverlaps(aStart, aEnd, bStart, bEnd) {
-  return aStart < bEnd && bStart < aEnd
-}
-
-/** Does a date fall within a job's day-of-week filter? */
-function dateMatchesJobDays(dateStr, jobDays) {
-  const dow = new Date(dateStr + 'T00:00:00').getDay() // 0=Sun..6=Sat
-  const isWeekend = dow === 0 || dow === 6
-  if (jobDays === 'weekdays_only') return !isWeekend
-  if (jobDays === 'weekends_only') return isWeekend
-  return true // weekdays_and_weekends
-}
 
 // ════════════════════════════════════════════════════════════════════════
 // Apply / list / review leave
+//
+// Note: the notification + replacement cascade logic lives in the database
+// (SECURITY DEFINER triggers from migration 20260426000000), so the client
+// only performs the core writes and lets the triggers handle the rest. This
+// avoids RLS blocking cross-user notification/flag writes from the browser.
 // ════════════════════════════════════════════════════════════════════════
 
 /** Worker or supervisor submits a leave request. */
@@ -72,8 +25,8 @@ export async function applyForLeave(requesterId, { leaveDate, duration, reason, 
     .single()
   if (error) throw error
 
-  // Notify approver(s): supervisor's leave → admins; helper's leave → supervisors
-  await notifyApproversOfLeaveRequest(requesterId, data)
+  // Notifications to approvers are handled server-side by the
+  // trg_notify_leave_request trigger (SECURITY DEFINER) — no client write needed.
   return data
 }
 
@@ -143,140 +96,33 @@ export async function reviewLeaveRequest(leaveId, decision, reviewerId, reviewNo
     .single()
   if (error) throw error
 
-  // Notify the requester of the decision
-  await safeNotify({
-    recipient_user_id: leave.requester_id,
-    title: status === 'approved' ? 'Leave Approved' : 'Leave Rejected',
-    message: status === 'approved'
-      ? `Your leave on ${leave.leave_date} has been approved.`
-      : `Your leave on ${leave.leave_date} was rejected${reviewNote ? ': ' + reviewNote : '.'}`,
-    notification_type: status === 'approved' ? 'leave_approved' : 'leave_rejected',
-  })
-
-  // Cascade only on approval
-  if (status === 'approved') {
-    await runReplacementCascade(leave)
-  }
+  // The decision notification AND the full replacement cascade (flags +
+  // customer/internal notifications) are handled server-side by the
+  // trg_cascade_leave_approved / trg_notify_leave_rejected triggers
+  // (SECURITY DEFINER). No client-side cascade needed — this avoids the
+  // RLS issues that silently dropped notifications and flags before.
   return leave
 }
 
-// ════════════════════════════════════════════════════════════════════════
-// Replacement cascade
-// ════════════════════════════════════════════════════════════════════════
-
-/**
- * On leave approval: find the jobs the absent worker is assigned to whose
- * schedule overlaps the leave (date + time-aware), flag each affected
- * job-date, and notify customer + internal team.
- */
-export async function runReplacementCascade(leave) {
-  const leaveWin = LEAVE_WINDOWS[leave.duration] || LEAVE_WINDOWS.full_day
-
-  // Jobs the absent worker is assigned to
-  const { data: assoc } = await supabase
-    .from('job_associated_users')
-    .select('job_id')
-    .eq('user_id', leave.requester_id)
-    .in('role', ['helper', 'supervisor'])
-
-  const jobIds = [...new Set((assoc || []).map(a => a.job_id))]
-  if (jobIds.length === 0) return
-
-  // Active jobs only
-  const { data: jobs } = await supabase
-    .from('jobs')
-    .select('*')
-    .in('id', jobIds)
-    .not('status', 'in', '(job_closed,cancelled,payment_confirmed)')
-
-  for (const job of jobs || []) {
-    // Is the job actually scheduled on the leave date?
-    //   • one-time → job_date must equal the leave date
-    //   • recurring → leave date within range AND matches day-of-week filter
-    if (job.job_category === 'frequent') {
-      const start = job.job_from_date
-      const end = job.job_to_date || job.job_from_date
-      if (!start) continue
-      if (leave.leave_date < start || leave.leave_date > end) continue
-      if (!dateMatchesJobDays(leave.leave_date, job.job_days)) continue
-    } else {
-      // one-time job
-      if (!job.job_date || job.job_date !== leave.leave_date) continue
-    }
-
-    // Time-aware overlap: leave window vs job scheduled time
-    const jobStart = (job.job_start_time || '00:00').slice(0, 5)
-    const jobEnd = (job.job_end_time || '23:59').slice(0, 5)
-    if (!timeOverlaps(leaveWin.start, leaveWin.end, jobStart, jobEnd)) continue
-
-    // Create the replacement flag for this job-date (idempotent on unique key)
+export async function assignReplacement(flagId, replacementUserId) {
+  // Add the replacement worker to the job's associated users first, so the
+  // customer-visible assignment exists before notifications fire.
+  const { data: existingFlag } = await supabase
+    .from('job_replacement_flags').select('job_id').eq('id', flagId).single()
+  if (existingFlag?.job_id) {
     try {
-      await supabase.from('job_replacement_flags').upsert({
-        job_id: job.id,
-        flag_date: leave.leave_date,
-        absent_user_id: leave.requester_id,
-        leave_request_id: leave.id,
-      }, { onConflict: 'job_id,flag_date,absent_user_id' })
+      await supabase.from('job_associated_users').upsert({
+        job_id: existingFlag.job_id,
+        user_id: replacementUserId,
+        role: 'helper',
+      }, { onConflict: 'job_id,user_id,role' })
     } catch (e) {
-      console.warn('Replacement flag upsert failed:', e?.message || e)
+      console.warn('Associating replacement worker failed:', e?.message || e)
     }
-
-    // Notify customer (helpee) + internal (supervisor/admin)
-    await notifyJobReplacementNeeded(job, leave)
-  }
-}
-
-async function notifyJobReplacementNeeded(job, leave) {
-  // Absent worker's name
-  const { data: absentUser } = await supabase
-    .from('users').select('user_name').eq('id', leave.requester_id).single()
-  const absentName = absentUser?.user_name || 'A worker'
-
-  // Recipients: helpee (customer) on the job + all supervisors/admins
-  const { data: jau } = await supabase
-    .from('job_associated_users')
-    .select('user_id, role')
-    .eq('job_id', job.id)
-
-  const recipients = []
-
-  // Customer
-  const helpee = (jau || []).find(u => u.role === 'helpee')
-  if (helpee) {
-    recipients.push({
-      recipient_user_id: helpee.user_id,
-      title: 'Worker Unavailable',
-      message: `${absentName} is unavailable on ${leave.leave_date} for "${job.job_name}". We are assigning a replacement worker to ensure your service continues without interruption.`,
-      notification_type: 'replacement_needed',
-      related_job_id: job.id,
-    })
   }
 
-  // Internal team (supervisors + admins)
-  const { data: internal } = await supabase
-    .from('users')
-    .select('id')
-    .in('user_type', ['admin', 'supervisor'])
-    .eq('is_active', true)
-  for (const u of internal || []) {
-    recipients.push({
-      recipient_user_id: u.id,
-      title: 'Replacement Needed',
-      message: `${absentName} is on leave ${leave.leave_date}. Job "${job.job_name}" needs a replacement worker.`,
-      notification_type: 'replacement_needed',
-      related_job_id: job.id,
-    })
-  }
-
-  await safeNotify(recipients)
-}
-
-/**
- * Assign a replacement worker for a flagged job-date.
- * Clears the flag and notifies the customer.
- */
-export async function assignReplacement(flagId, replacementUserId, assignerName) {
-  // Update the flag
+  // Fill the flag — the trg_notify_replacement_assigned trigger (SECURITY
+  // DEFINER) notifies the customer + replacement worker server-side.
   const { data: flag, error } = await supabase
     .from('job_replacement_flags')
     .update({
@@ -287,51 +133,6 @@ export async function assignReplacement(flagId, replacementUserId, assignerName)
     .select('*')
     .single()
   if (error) throw error
-
-  // Add the replacement worker to the job's associated users (if not already)
-  try {
-    await supabase.from('job_associated_users').upsert({
-      job_id: flag.job_id,
-      user_id: replacementUserId,
-      role: 'helper',
-    }, { onConflict: 'job_id,user_id,role' })
-  } catch (e) {
-    console.warn('Associating replacement worker failed:', e?.message || e)
-  }
-
-  // Names for the notification
-  const [{ data: job }, { data: repl }] = await Promise.all([
-    supabase.from('jobs').select('job_name').eq('id', flag.job_id).single(),
-    supabase.from('users').select('user_name').eq('id', replacementUserId).single(),
-  ])
-  const jobName = job?.job_name || 'your job'
-  const replName = repl?.user_name || 'A replacement worker'
-
-  // Notify customer + replacement worker
-  const { data: jau } = await supabase
-    .from('job_associated_users')
-    .select('user_id, role')
-    .eq('job_id', flag.job_id)
-
-  const recipients = []
-  const helpee = (jau || []).find(u => u.role === 'helpee')
-  if (helpee) {
-    recipients.push({
-      recipient_user_id: helpee.user_id,
-      title: 'Replacement Assigned',
-      message: `Update for "${jobName}": ${replName} has been assigned to cover your service during the absence on ${flag.flag_date}.`,
-      notification_type: 'replacement_assigned',
-      related_job_id: flag.job_id,
-    })
-  }
-  recipients.push({
-    recipient_user_id: replacementUserId,
-    title: 'New Assignment',
-    message: `You have been assigned to cover "${jobName}" on ${flag.flag_date}.`,
-    notification_type: 'job_assigned',
-    related_job_id: flag.job_id,
-  })
-  await safeNotify(recipients)
 
   return flag
 }
@@ -374,22 +175,3 @@ export async function getReplacementFlagsForJob(jobId) {
   return data || []
 }
 
-// ── internal: notify the correct approvers when a leave is requested ──
-async function notifyApproversOfLeaveRequest(requesterId, leave) {
-  const { data: requester } = await supabase
-    .from('users').select('user_name, user_type').eq('id', requesterId).single()
-  const name = requester?.user_name || 'A team member'
-
-  // helper's leave → supervisors; supervisor's leave → admins
-  const approverType = requester?.user_type === 'supervisor' ? 'admin' : 'supervisor'
-  const { data: approvers } = await supabase
-    .from('users').select('id').eq('user_type', approverType).eq('is_active', true)
-
-  const rows = (approvers || []).map(a => ({
-    recipient_user_id: a.id,
-    title: 'Leave Request',
-    message: `${name} requested leave on ${leave.leave_date} (${leave.duration.replace('_', ' ')}).`,
-    notification_type: 'leave_request',
-  }))
-  await safeNotify(rows)
-}
