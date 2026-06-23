@@ -876,6 +876,38 @@ export async function correctAttendanceRecord(rowId, corrections, correctedByUse
  * Returns active jobs they're assigned to, with any existing attendance row
  * for that date merged in (so the UI knows check-in/out state).
  */
+/**
+ * Is a job actually scheduled to run on the given date?
+ *   • One-time job  → date must equal job_date
+ *   • Recurring job → date must be within [job_from_date, job_to_date]
+ *                     AND match the job_days day-of-week filter
+ * Used to keep expired/non-scheduled jobs off the My Day check-in surface
+ * even when their status is still open (nobody closed them).
+ */
+export function isJobScheduledOnDate(job, dateStr) {
+  if (!job) return false
+
+  // One-time job: single job_date
+  if (job.job_date) {
+    return job.job_date === dateStr
+  }
+
+  // Recurring job: must be within the date range
+  const from = job.job_from_date
+  const to = job.job_to_date
+  if (from && dateStr < from) return false
+  if (to && dateStr > to) return false
+  // If neither bound exists we can't say it's scheduled — treat as not scheduled
+  if (!from && !to) return false
+
+  // Day-of-week filter
+  const dow = new Date(dateStr + 'T00:00:00').getDay() // 0=Sun..6=Sat
+  const isWeekend = dow === 0 || dow === 6
+  if (job.job_days === 'weekdays_only') return !isWeekend
+  if (job.job_days === 'weekends_only') return isWeekend
+  return true // weekdays_and_weekends (or null) → runs every day in range
+}
+
 export async function getJobsForCheckin(userId, attendanceDate) {
   const date = attendanceDate || new Date().toISOString().slice(0, 10)
 
@@ -898,19 +930,26 @@ export async function getJobsForCheckin(userId, attendanceDate) {
     .not('status', 'in', '(job_closed,cancelled,payment_confirmed)')
   if (jobsErr) throw jobsErr
 
+  // Only surface jobs actually SCHEDULED for this date. A job whose schedule
+  // has expired (e.g. recurring job past job_to_date, or a one-time job on a
+  // different day) must not appear on My Day even if its status is still open
+  // because nobody closed it.
+  const scheduledJobs = (jobs || []).filter(job => isJobScheduledOnDate(job, date))
+
   // Fetch existing attendance rows for this user + date
-  const { data: attRows } = await supabase
+  const scheduledIds = scheduledJobs.map(j => j.id)
+  const { data: attRows } = scheduledIds.length ? await supabase
     .from('job_attendance')
     .select('*')
     .eq('helper_id', userId)
     .eq('attendance_date', date)
-    .in('job_id', jobIds)
+    .in('job_id', scheduledIds) : { data: [] }
 
   const attByJob = {}
   ;(attRows || []).forEach(r => { attByJob[r.job_id] = r })
 
   // Merge: each job + its attendance state for the date
-  return (jobs || []).map(job => ({
+  return scheduledJobs.map(job => ({
     ...job,
     attendance: attByJob[job.id] || null,
     checkin_state: !attByJob[job.id] ? 'not_started'
@@ -948,12 +987,11 @@ export async function getUpcomingJobsForUser(userId, fromDate) {
 
   const upcoming = []
   for (const job of jobs || []) {
-    const start = job.job_from_date
-    const end = job.job_to_date || job.job_from_date
-    if (!start) continue
-
     if (job.job_category === 'frequent') {
-      // Recurring — show as a grouped range if any part is in the future
+      // Recurring — show as a grouped range if any part is still in the future
+      const start = job.job_from_date
+      const end = job.job_to_date || job.job_from_date
+      if (!start) continue
       if (end && end > today) {
         // Range starts either at its own start (if future) or tomorrow
         const displayStart = start > today ? start : nextDay(today)
@@ -964,14 +1002,16 @@ export async function getUpcomingJobsForUser(userId, fromDate) {
           upcoming_to: end,
         })
       }
+      // else: recurring job has fully expired (end <= today) → don't show
     } else {
-      // One-time — show only if its single date is in the future
-      if (start > today) {
+      // One-time — single date lives in job_date. Show only if it's in the future.
+      const oneDate = job.job_date
+      if (oneDate && oneDate > today) {
         upcoming.push({
           ...job,
           is_recurring: false,
-          upcoming_from: start,
-          upcoming_to: start,
+          upcoming_from: oneDate,
+          upcoming_to: oneDate,
         })
       }
     }

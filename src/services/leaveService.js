@@ -174,14 +174,19 @@ export async function runReplacementCascade(leave) {
     .not('status', 'in', '(job_closed,cancelled,payment_confirmed)')
 
   for (const job of jobs || []) {
-    // Is the leave date within the job's scheduled date range?
-    const start = job.job_from_date
-    const end = job.job_to_date || job.job_from_date
-    if (!start) continue
-    if (leave.leave_date < start || leave.leave_date > end) continue
-
-    // Does the leave date match the job's day-of-week filter?
-    if (!dateMatchesJobDays(leave.leave_date, job.job_days)) continue
+    // Is the job actually scheduled on the leave date?
+    //   • one-time → job_date must equal the leave date
+    //   • recurring → leave date within range AND matches day-of-week filter
+    if (job.job_category === 'frequent') {
+      const start = job.job_from_date
+      const end = job.job_to_date || job.job_from_date
+      if (!start) continue
+      if (leave.leave_date < start || leave.leave_date > end) continue
+      if (!dateMatchesJobDays(leave.leave_date, job.job_days)) continue
+    } else {
+      // one-time job
+      if (!job.job_date || job.job_date !== leave.leave_date) continue
+    }
 
     // Time-aware overlap: leave window vs job scheduled time
     const jobStart = (job.job_start_time || '00:00').slice(0, 5)
