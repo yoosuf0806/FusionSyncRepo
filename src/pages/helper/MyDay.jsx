@@ -5,6 +5,7 @@ import MainLayout from '../../layouts/MainLayout'
 import {
   getJobsForCheckin, checkInToJob, checkOutOfJob, getUpcomingJobsForUser,
 } from '../../services/jobService'
+import { applyForLeave } from '../../services/leaveService'
 
 /* ────────────────────────────────────────────────────────────────────────
    MyDay — worker / supervisor check-in/out screen
@@ -39,6 +40,7 @@ export default function MyDay() {
   const [busyJobId, setBusyJobId] = useState(null)
   const [error, setError] = useState('')
   const [tick, setTick] = useState(0)   // re-render for live timers
+  const [showLeave, setShowLeave] = useState(false)
 
   const today = new Date().toISOString().slice(0, 10)
 
@@ -125,6 +127,13 @@ export default function MyDay() {
           <p className="text-sm text-hh-placeholder">{dateLabel}</p>
           <h1 className="text-2xl font-bold text-hh-text">{greeting}</h1>
         </div>
+        <button
+          onClick={() => setShowLeave(true)}
+          className="text-sm font-semibold text-hh-green border border-hh-green
+            rounded-full px-4 py-1.5 hover:bg-hh-green hover:text-white transition-colors"
+        >
+          Apply Leave
+        </button>
       </div>
 
       {/* Stats strip */}
@@ -224,6 +233,13 @@ export default function MyDay() {
         </>
       )}
     </div>
+    {showLeave && (
+      <ApplyLeaveModal
+        userId={dbUser?.id}
+        onClose={() => setShowLeave(false)}
+        onSubmitted={() => setShowLeave(false)}
+      />
+    )}
     </MainLayout>
   )
 }
@@ -362,6 +378,95 @@ function CompactJobCard({ job, busy, onCheckIn, onCheckOut, onOpen }) {
           {busy ? '…' : 'CHECK OUT'}
         </button>
       )}
+    </div>
+  )
+}
+
+/* ── Apply Leave modal — preset reasons, optional note, half/full day ── */
+function ApplyLeaveModal({ userId, onClose, onSubmitted }) {
+  const [leaveDate, setLeaveDate] = useState(new Date().toISOString().slice(0, 10))
+  const [duration, setDuration] = useState('full_day')
+  const [reason, setReason] = useState('sick')
+  const [note, setNote] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState('')
+
+  const REASONS = [
+    { key: 'sick', label: 'Sick', icon: '🤒' },
+    { key: 'personal', label: 'Personal', icon: '🏠' },
+    { key: 'emergency', label: 'Emergency', icon: '🚨' },
+    { key: 'other', label: 'Other', icon: '📋' },
+  ]
+  const DURATIONS = [
+    { key: 'full_day', label: 'Full Day' },
+    { key: 'first_half', label: 'Morning (8am–1pm)' },
+    { key: 'second_half', label: 'Afternoon (1pm–6pm)' },
+  ]
+
+  const submit = async () => {
+    setSaving(true); setErr('')
+    try {
+      await applyForLeave(userId, { leaveDate, duration, reason, note })
+      onSubmitted()
+    } catch (e) {
+      setErr(e.message || 'Could not submit leave')
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4"
+      onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-5"
+        onClick={e => e.stopPropagation()}>
+        <h2 className="text-lg font-bold text-hh-text mb-4">Apply for Leave</h2>
+
+        <label className="block text-xs text-hh-placeholder mb-1">Date</label>
+        <input type="date" value={leaveDate} onChange={e => setLeaveDate(e.target.value)}
+          className="form-cell px-3 py-2 text-sm w-full mb-4" />
+
+        <label className="block text-xs text-hh-placeholder mb-2">Reason</label>
+        <div className="grid grid-cols-2 gap-2 mb-4">
+          {REASONS.map(r => (
+            <button key={r.key} onClick={() => setReason(r.key)}
+              className={`flex items-center gap-2 px-3 py-3 rounded-xl border text-sm font-medium
+                transition-colors ${reason === r.key
+                  ? 'border-hh-green bg-green-50 text-hh-green'
+                  : 'border-gray-200 text-hh-text'}`}>
+              <span className="text-lg">{r.icon}</span> {r.label}
+            </button>
+          ))}
+        </div>
+
+        <label className="block text-xs text-hh-placeholder mb-2">Duration</label>
+        <div className="space-y-2 mb-4">
+          {DURATIONS.map(d => (
+            <button key={d.key} onClick={() => setDuration(d.key)}
+              className={`w-full text-left px-3 py-2.5 rounded-xl border text-sm font-medium
+                transition-colors ${duration === d.key
+                  ? 'border-hh-green bg-green-50 text-hh-green'
+                  : 'border-gray-200 text-hh-text'}`}>
+              {d.label}
+            </button>
+          ))}
+        </div>
+
+        <label className="block text-xs text-hh-placeholder mb-1">Note (optional)</label>
+        <textarea value={note} onChange={e => setNote(e.target.value)}
+          placeholder="Add a note if needed"
+          className="form-cell px-3 py-2 text-sm w-full h-16 resize-none mb-3" />
+
+        {err && <div className="bg-red-50 text-hh-error text-sm rounded-lg px-3 py-2 mb-3">{err}</div>}
+
+        <div className="flex gap-3">
+          <button onClick={onClose}
+            className="flex-1 py-3 text-sm font-medium text-hh-placeholder">Cancel</button>
+          <button onClick={submit} disabled={saving}
+            className="flex-1 bg-hh-green text-white font-bold py-3 rounded-xl disabled:opacity-50">
+            {saving ? 'Submitting…' : 'Submit'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
