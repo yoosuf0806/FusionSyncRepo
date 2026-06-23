@@ -60,7 +60,7 @@ export async function getJobs({ search = '', statusFilter = '' } = {}) {
     .from('jobs')
     .select(`
       id, job_id, job_name, job_category, job_type_id, status,
-      job_from_date, job_to_date, job_start_time, job_location, job_description,
+      job_date, job_from_date, job_to_date, job_start_time, job_location, job_description,
       created_at, job_specifications(job_type_name)
     `)
     .order('created_at', { ascending: false })
@@ -83,11 +83,11 @@ export async function getJobs({ search = '', statusFilter = '' } = {}) {
 }
 
 const JOB_LIST_SELECT = `
-  id, job_id, job_name, job_category, status, job_from_date, job_to_date,
+  id, job_id, job_name, job_category, status, job_date, job_from_date, job_to_date,
   created_at, job_specifications(job_type_name)
 `
 const JOB_LIST_MINIMAL = `
-  id, job_id, job_name, job_category, status, job_from_date, job_to_date,
+  id, job_id, job_name, job_category, status, job_date, job_from_date, job_to_date,
   created_at, job_type_id
 `
 
@@ -876,6 +876,29 @@ export async function correctAttendanceRecord(rowId, corrections, correctedByUse
  * Returns active jobs they're assigned to, with any existing attendance row
  * for that date merged in (so the UI knows check-in/out state).
  */
+// Statuses that mean the job is properly finished/terminal — an expired job
+// in one of these is fine and should NOT be flagged.
+const CLOSED_STATUSES = ['job_closed', 'payment_confirmed', 'cancelled']
+
+/**
+ * Is a job past its scheduled end but still open (not closed)?
+ * True when the job's last scheduled date is before today AND its status is
+ * not a terminal/closed one. These are the jobs that need an admin to close.
+ *   • One-time job  → expired if job_date < today
+ *   • Recurring job → expired if job_to_date (or job_from_date) < today
+ */
+export function isJobExpired(job, todayStr) {
+  if (!job) return false
+  if (CLOSED_STATUSES.includes(job.status)) return false
+  const today = todayStr || new Date().toISOString().slice(0, 10)
+
+  const lastDate = job.job_category === 'frequent'
+    ? (job.job_to_date || job.job_from_date)
+    : job.job_date
+  if (!lastDate) return false
+  return lastDate < today
+}
+
 /**
  * Is a job actually scheduled to run on the given date?
  *   • One-time job  → date must equal job_date

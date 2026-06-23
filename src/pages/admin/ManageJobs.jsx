@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import MainLayout from '../../layouts/MainLayout'
 import { useAuth } from '../../contexts/AuthContext'
-import { getJobs, getJobsForUser, getJobsForHelpee, deleteJob } from '../../services/jobService'
+import { getJobs, getJobsForUser, getJobsForHelpee, deleteJob, isJobExpired } from '../../services/jobService'
 import { getOpenReplacementFlags } from '../../services/leaveService'
 import SearchInput from '../../components/SearchInput'
 import ConfirmModal from '../../components/ConfirmModal'
@@ -151,6 +151,12 @@ export default function ManageJobs() {
                     <span className="shrink-0 text-[9px] font-bold bg-red-100 text-hh-error px-1.5 py-0.5 rounded-full whitespace-nowrap"
                       title="A worker is on leave — replacement needed">
                       ⚠ REPLACE
+                    </span>
+                  )}
+                  {isJobExpired(job) && (
+                    <span className="shrink-0 text-[9px] font-bold bg-red-600 text-white px-1.5 py-0.5 rounded-full whitespace-nowrap"
+                      title="This job's scheduled end date has passed but it was never closed">
+                      JOB NOT CLOSED, EXPIRED
                     </span>
                   )}
                 </div>
