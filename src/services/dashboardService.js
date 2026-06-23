@@ -116,12 +116,19 @@ export async function getSupervisorDashboard() {
     .eq('is_active', true)
   const unassignedHelpers = (allHelpers || []).filter(h => !assignedHelperIds.has(h.id)).length
 
+  // Open replacement flags (per-job-per-date, unfilled)
+  const { count: replacementsNeeded } = await client
+    .from('job_replacement_flags')
+    .select('id', { count: 'exact', head: true })
+    .is('replacement_user_id', null)
+
   return {
     unassigned_jobs: all.filter(j => j.status === 'request_raised').length,
     pending:         all.filter(j => PENDING_STATUSES.includes(j.status)).length,
     ongoing:         all.filter(j => ONGOING_STATUSES.includes(j.status)).length,
     completed:       all.filter(j => COMPLETED_STATUSES.includes(j.status)).length,
     unassigned_helpers: unassignedHelpers,
+    replacements_needed: replacementsNeeded || 0,
   }
 }
 
@@ -145,11 +152,17 @@ export async function getAdminDashboard() {
   const assignedHelperIds = new Set((assignedHelpers || []).map(r => r.user_id))
   const unassignedHelpers = (allHelpers || []).filter(h => !assignedHelperIds.has(h.id)).length
 
+  const { count: replacementsNeeded } = await client
+    .from('job_replacement_flags')
+    .select('id', { count: 'exact', head: true })
+    .is('replacement_user_id', null)
+
   return {
     total_users:        (users || []).length,
     total_jobs:         allJobs.length,
     completed:          allJobs.filter(j => COMPLETED_STATUSES.includes(j.status)).length,
     pending:            allJobs.filter(j => PENDING_STATUSES.includes(j.status)).length,
     unassigned_helpers: unassignedHelpers,
+    replacements_needed: replacementsNeeded || 0,
   }
 }

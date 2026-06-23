@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import MainLayout from '../../layouts/MainLayout'
 import { useAuth } from '../../contexts/AuthContext'
 import { getJobs, getJobsForUser, getJobsForHelpee, deleteJob } from '../../services/jobService'
+import { getOpenReplacementFlags } from '../../services/leaveService'
 import SearchInput from '../../components/SearchInput'
 import ConfirmModal from '../../components/ConfirmModal'
 import LoadingSpinner from '../../components/LoadingSpinner'
@@ -30,6 +31,7 @@ export default function ManageJobs() {
   const navigate = useNavigate()
   const { user: authUser, role, isAdmin, isSupervisor, isHelper, isHelpee } = useAuth()
   const [jobs, setJobs] = useState([])
+  const [flaggedJobIds, setFlaggedJobIds] = useState(new Set())
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [loading, setLoading] = useState(true)
@@ -55,6 +57,13 @@ export default function ManageJobs() {
         data = await getJobs({ search, statusFilter })
       }
       setJobs(data)
+      // Load open replacement flags to badge affected jobs (internal roles only)
+      if (!isHelper && !isHelpee) {
+        try {
+          const openFlags = await getOpenReplacementFlags()
+          setFlaggedJobIds(new Set((openFlags || []).map(f => f.job_id)))
+        } catch { /* non-fatal */ }
+      }
     } catch (e) {
       setError(e.message)
     } finally {
@@ -136,7 +145,15 @@ export default function ManageJobs() {
                 >
                   {job.job_id}
                 </div>
-                <div className="table-row rounded-hh-lg px-2 text-xs">{job.job_name}</div>
+                <div className="table-row rounded-hh-lg px-2 text-xs flex items-center gap-1.5">
+                  <span className="truncate">{job.job_name}</span>
+                  {flaggedJobIds.has(job.id) && (
+                    <span className="shrink-0 text-[9px] font-bold bg-red-100 text-hh-error px-1.5 py-0.5 rounded-full whitespace-nowrap"
+                      title="A worker is on leave — replacement needed">
+                      ⚠ REPLACE
+                    </span>
+                  )}
+                </div>
                 <div className="table-row rounded-hh-lg px-2 text-xs">
                   {job.job_specifications?.job_type_name || '—'}
                 </div>

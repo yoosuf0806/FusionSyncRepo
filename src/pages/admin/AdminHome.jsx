@@ -86,6 +86,7 @@ function AdminDashboard({ navigate }) {
         <StatCard label="Pending Jobs"         value={stats?.pending}            onClick={() => navigate('/admin/manage-jobs')} />
         <StatCard label="Completed Jobs"       value={stats?.completed}          onClick={() => navigate('/admin/manage-jobs')} accent />
         <StatCard label="Helpers Not Assigned" value={stats?.unassigned_helpers} onClick={() => navigate('/admin/manage-users')} />
+        <StatCard label="Replacements Needed"  value={stats?.replacements_needed} onClick={() => navigate('/admin/manage-attendance')} accent />
       </OverviewSection>
     </div>
   )
@@ -116,6 +117,7 @@ function SupervisorDashboard({ navigate }) {
         <StatCard label="Ongoing Jobs"         value={stats?.ongoing}            onClick={() => navigate('/supervisor/manage-jobs')} accent />
         <StatCard label="Completed Jobs"       value={stats?.completed}          onClick={() => navigate('/supervisor/manage-jobs')} accent />
         <StatCard label="Helpers Not Assigned" value={stats?.unassigned_helpers} onClick={() => navigate('/supervisor/manage-users')} />
+        <StatCard label="Replacements Needed"  value={stats?.replacements_needed} onClick={() => navigate('/supervisor/manage-attendance')} accent />
       </OverviewSection>
     </div>
   )

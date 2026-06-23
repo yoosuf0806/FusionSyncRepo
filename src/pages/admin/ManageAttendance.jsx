@@ -7,6 +7,11 @@ import {
 import {
   exportAttendanceCSV, exportAttendanceExcel, exportAttendancePDF,
 } from '../../utils/attendanceExport'
+import {
+  getLeaveRequestsToReview, reviewLeaveRequest,
+  getOpenReplacementFlags, assignReplacement,
+} from '../../services/leaveService'
+import { getUsers } from '../../services/userService'
 
 /* ────────────────────────────────────────────────────────────────────────
    ManageAttendance — internal team (admin/supervisor) view of all
@@ -40,12 +45,16 @@ const STATUS_STYLE = {
 export default function ManageAttendance() {
   const { user, isAdmin } = useAuth()
   const viewerType = isAdmin ? 'admin' : 'supervisor'
+  const [tab, setTab] = useState('attendance')
   const [rows, setRows] = useState(null)
   const [error, setError] = useState('')
   const [dateFrom, setDateFrom] = useState(weekAgoStr())
   const [dateTo, setDateTo] = useState(todayStr())
   const [search, setSearch] = useState('')
   const [editing, setEditing] = useState(null)   // row being corrected
+  const [leaves, setLeaves] = useState(null)
+  const [flags, setFlags] = useState(null)
+  const [replacing, setReplacing] = useState(null)  // flag being filled
 
   const load = async () => {
     setRows(null); setError('')
@@ -59,6 +68,37 @@ export default function ManageAttendance() {
   }
 
   useEffect(() => { load() }, [dateFrom, dateTo])   // eslint-disable-line
+
+  const loadLeaves = async () => {
+    setLeaves(null)
+    try {
+      const data = await getLeaveRequestsToReview({ viewerType, statusFilter: 'pending' })
+      setLeaves(data)
+    } catch { setLeaves([]) }
+  }
+  const loadFlags = async () => {
+    setFlags(null)
+    try {
+      const data = await getOpenReplacementFlags()
+      setFlags(data)
+    } catch { setFlags([]) }
+  }
+
+  useEffect(() => {
+    if (tab === 'leave' && leaves === null) loadLeaves()
+    if (tab === 'replacements' && flags === null) loadFlags()
+  }, [tab])   // eslint-disable-line
+
+  const handleReview = async (leaveId, decision) => {
+    try {
+      await reviewLeaveRequest(leaveId, decision, user?.id, null)
+      await loadLeaves()
+      // refresh flags too since approval creates them
+      setFlags(null)
+    } catch (e) {
+      setError(e.message || 'Could not review leave')
+    }
+  }
 
   const filtered = (rows || []).filter(r => {
     if (!search.trim()) return true
@@ -76,6 +116,23 @@ export default function ManageAttendance() {
         View worker check-in/out records. Correct forgotten check-outs or mistaken taps.
       </p>
 
+      {/* Tabs */}
+      <div className="flex gap-6 border-b border-gray-200 mb-5">
+        {[
+          { key: 'attendance', label: 'Attendance' },
+          { key: 'leave', label: 'Leave Requests' },
+          { key: 'replacements', label: 'Replacements Needed' },
+        ].map(t => (
+          <button key={t.key} onClick={() => setTab(t.key)}
+            className={`pb-2 text-sm font-semibold transition-colors
+              ${tab === t.key ? 'text-hh-text border-b-2 border-hh-green' : 'text-hh-placeholder'}`}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'attendance' && (
+      <>
       {/* Filters */}
       <div className="flex flex-wrap gap-3 items-end mb-5">
         <div>
@@ -199,6 +256,21 @@ export default function ManageAttendance() {
           </table>
         </div>
       )}
+      </>
+      )}
+
+      {/* ── LEAVE REQUESTS TAB ── */}
+      {tab === 'leave' && (
+        <LeaveReviewList leaves={leaves} onReview={handleReview} />
+      )}
+
+      {/* ── REPLACEMENTS NEEDED TAB ── */}
+      {tab === 'replacements' && (
+        <ReplacementsList
+          flags={flags}
+          onReplace={(flag) => setReplacing(flag)}
+        />
+      )}
 
       {editing && (
         <CorrectionModal
@@ -208,8 +280,151 @@ export default function ManageAttendance() {
           onSaved={() => { setEditing(null); load() }}
         />
       )}
+
+      {replacing && (
+        <ReplacementModal
+          flag={replacing}
+          onClose={() => setReplacing(null)}
+          onAssigned={() => { setReplacing(null); loadFlags() }}
+        />
+      )}
     </div>
     </MainLayout>
+  )
+}
+
+/* ── Leave review list ── */
+function LeaveReviewList({ leaves, onReview }) {
+  if (leaves === null) {
+    return <div className="flex justify-center py-16">
+      <span className="w-7 h-7 border-2 border-gray-300 border-t-hh-green rounded-full animate-spin" /></div>
+  }
+  if (leaves.length === 0) {
+    return <div className="text-center py-16 text-hh-placeholder text-sm">No pending leave requests.</div>
+  }
+  const reasonLabel = { sick: 'Sick', personal: 'Personal', emergency: 'Emergency', other: 'Other' }
+  const durLabel = { full_day: 'Full Day', first_half: 'Morning', second_half: 'Afternoon' }
+  return (
+    <div className="space-y-3">
+      {leaves.map(l => (
+        <div key={l.id} className="bg-white rounded-hh shadow-sm p-4 flex items-center justify-between">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-hh-text">{l.requester_name}</span>
+              {l.requester_type === 'supervisor' && (
+                <span className="text-[10px] bg-purple-100 text-purple-600 px-1.5 py-0.5 rounded">SUP</span>
+              )}
+            </div>
+            <p className="text-sm text-hh-placeholder mt-0.5">
+              {l.leave_date} · {durLabel[l.duration]} · {reasonLabel[l.reason]}
+            </p>
+            {l.note && <p className="text-xs text-hh-placeholder mt-1 italic">"{l.note}"</p>}
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => onReview(l.id, 'reject')}
+              className="px-4 py-2 text-sm font-medium text-hh-error border border-red-200 rounded-hh hover:bg-red-50">
+              Reject
+            </button>
+            <button onClick={() => onReview(l.id, 'approve')}
+              className="px-4 py-2 text-sm font-medium text-white bg-hh-green rounded-hh hover:opacity-90">
+              Approve
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/* ── Replacements-needed list ── */
+function ReplacementsList({ flags, onReplace }) {
+  if (flags === null) {
+    return <div className="flex justify-center py-16">
+      <span className="w-7 h-7 border-2 border-gray-300 border-t-hh-green rounded-full animate-spin" /></div>
+  }
+  if (flags.length === 0) {
+    return <div className="text-center py-16 text-hh-placeholder text-sm">No replacements needed. 🎉</div>
+  }
+  return (
+    <div className="space-y-3">
+      {flags.map(f => (
+        <div key={f.id} className="bg-white rounded-hh shadow-sm p-4 flex items-center justify-between
+          border-l-4 border-hh-error">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-hh-green font-semibold">{f.job_code}</span>
+              <span className="font-semibold text-hh-text">{f.job_name}</span>
+            </div>
+            <p className="text-sm text-hh-placeholder mt-0.5">
+              {f.absent_name} absent on {f.flag_date}
+            </p>
+          </div>
+          <button onClick={() => onReplace(f)}
+            className="px-4 py-2 text-sm font-medium text-white bg-hh-green rounded-hh hover:opacity-90">
+            Replace Worker
+          </button>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/* ── Replacement assignment modal ── */
+function ReplacementModal({ flag, onClose, onAssigned }) {
+  const [helpers, setHelpers] = useState(null)
+  const [selected, setSelected] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState('')
+
+  useEffect(() => {
+    getUsers({ userType: 'helper' })
+      .then(data => setHelpers((data || []).filter(u => u.is_active && u.id !== flag.absent_user_id)))
+      .catch(() => setHelpers([]))
+  }, [flag])
+
+  const save = async () => {
+    if (!selected) { setErr('Select a replacement worker.'); return }
+    setSaving(true); setErr('')
+    try {
+      await assignReplacement(flag.id, selected)
+      onAssigned()
+    } catch (e) {
+      setErr(e.message || 'Could not assign replacement')
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4" onClick={onClose}>
+      <div className="bg-white rounded-hh-xl shadow-hh-lg w-full max-w-md p-5" onClick={e => e.stopPropagation()}>
+        <h2 className="text-lg font-bold text-hh-text mb-1">Replace Worker</h2>
+        <p className="text-sm text-hh-placeholder mb-4">
+          {flag.job_code} · {flag.job_name} · {flag.flag_date}
+        </p>
+
+        <label className="block text-xs text-hh-placeholder mb-1">Replacement worker</label>
+        {helpers === null ? (
+          <p className="text-sm text-hh-placeholder py-2">Loading workers…</p>
+        ) : (
+          <select value={selected} onChange={e => setSelected(e.target.value)}
+            className="form-cell px-3 py-2 text-sm w-full mb-3">
+            <option value="">Select a worker…</option>
+            {helpers.map(h => (
+              <option key={h.id} value={h.id}>{h.user_name}</option>
+            ))}
+          </select>
+        )}
+
+        {err && <div className="bg-red-50 text-hh-error text-sm rounded-hh px-3 py-2 mb-3">{err}</div>}
+
+        <div className="flex gap-3 justify-end">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-hh-placeholder">Cancel</button>
+          <button onClick={save} disabled={saving} className="btn-action px-6 disabled:opacity-50">
+            {saving ? 'Assigning…' : 'Assign Replacement'}
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 
