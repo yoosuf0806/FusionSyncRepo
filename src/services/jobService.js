@@ -1026,13 +1026,110 @@ export async function checkWorkerAvailability(workerId, proposed) {
   return { conflicts }
 }
 
+/* ────────────────────────────────────────────────────────────────────────
+   Direct worker replacement on a running job (supervisor-initiated).
+──────────────────────────────────────────────────────────────────────────*/
+
+/**
+ * Workers available to cover [fromDate, toDate] on a job — excludes anyone on
+ * approved leave or already booked (overlapping job) in that window, plus the
+ * worker being replaced and anyone already on the job.
+ */
+export async function getAvailableReplacementWorkers(jobId, replacedUserId, fromDate, toDate) {
+  const { data: allHelpers } = await supabase
+    .from('users')
+    .select('id, user_name')
+    .eq('user_type', 'helper')
+    .eq('is_active', true)
+    .order('user_name')
+
+  const { data: onJob } = await supabase
+    .from('job_associated_users')
+    .select('user_id')
+    .eq('job_id', jobId)
+  const onJobIds = new Set((onJob || []).map(r => r.user_id))
+
+  const proposed = {
+    job_category: 'frequent',
+    job_from_date: fromDate,
+    job_to_date: toDate,
+    job_days: 'weekdays_and_weekends',
+    job_start_time: '00:00',
+    job_end_time: '23:59',
+    excludeJobId: jobId,
+  }
+
+  const available = []
+  for (const h of allHelpers || []) {
+    if (h.id === replacedUserId) continue
+    if (onJobIds.has(h.id)) continue
+    try {
+      const { conflicts } = await checkWorkerAvailability(h.id, proposed)
+      if (conflicts && conflicts.length > 0) continue
+    } catch {
+      // conservative: still show on check failure
+    }
+    available.push(h)
+  }
+  return available
+}
+
+/**
+ * Record a supervisor-initiated replacement: B covers A on a job for a date
+ * range. A stays assigned; B is added to the job. Notifications (B + customer)
+ * fire via the trg_notify_worker_replacement DB trigger.
+ */
+export async function createWorkerReplacement({
+  jobId, replacedUserId, replacementUserId, fromDate, toDate, reason, createdBy,
+}) {
+  try {
+    await supabase.from('job_associated_users').upsert({
+      job_id: jobId, user_id: replacementUserId, role: 'helper',
+    }, { onConflict: 'job_id,user_id,role' })
+  } catch (e) {
+    console.warn('Associating replacement worker failed:', e?.message || e)
+  }
+
+  const { data, error } = await supabase
+    .from('worker_replacements')
+    .insert({
+      job_id: jobId,
+      replaced_user_id: replacedUserId,
+      replacement_user_id: replacementUserId,
+      from_date: fromDate,
+      to_date: toDate,
+      reason: reason || null,
+      created_by: createdBy || null,
+    })
+    .select('*')
+    .single()
+  if (error) throw error
+  return data
+}
+
+/**
+ * Replacements for a job, each tagged active=true when today is within its
+ * [from_date, to_date] window. Drives the customer-portal "Replaced" tag.
+ */
+export async function getWorkerReplacementsForJob(jobId) {
+  const { data, error } = await supabase
+    .from('worker_replacements')
+    .select('*')
+    .eq('job_id', jobId)
+  if (error) return []
+  const today = new Date().toISOString().slice(0, 10)
+  return (data || []).map(r => ({
+    ...r,
+    active: today >= r.from_date && today <= r.to_date,
+  }))
+}
+
+
 /**
  * Is a job actually scheduled to run on the given date?
  *   • One-time job  → date must equal job_date
  *   • Recurring job → date must be within [job_from_date, job_to_date]
  *                     AND match the job_days day-of-week filter
- * Used to keep expired/non-scheduled jobs off the My Day check-in surface
- * even when their status is still open (nobody closed them).
  */
 export function isJobScheduledOnDate(job, dateStr) {
   if (!job) return false

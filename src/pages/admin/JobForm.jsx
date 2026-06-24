@@ -8,6 +8,7 @@ import {
   getAttendanceForJob, getAttendanceForHelper, upsertAttendanceRow, updateAttendanceStatus,
   getJobMessages, postJobMessage, notifyHelpersAssignedToJob,
   autoCreateOrUpdateInvoice, checkWorkerAvailability,
+  getAvailableReplacementWorkers, createWorkerReplacement, getWorkerReplacementsForJob,
 } from '../../services/jobService'
 import { getJobSpecs, getQuestionsForSpec } from '../../services/jobSpecService'
 import { getUsers } from '../../services/userService'
@@ -339,7 +340,11 @@ export default function JobForm() {
 
   const [helpee, setHelpee] = useState(null)
   const [helpers, setHelpers] = useState([])
+  const [activeReplacementIds, setActiveReplacementIds] = useState(new Set())
   const [pendingConflict, setPendingConflict] = useState(null) // { user, conflicts }
+  const [showAddChooser, setShowAddChooser] = useState(false)   // Additional vs Replacement
+  const [replacementFlow, setReplacementFlow] = useState(null)  // replacement modal state
+  const ONGOING_STATUSES_JF = ['job_started', 'job_finished']
   const [supervisor, setSupervisor] = useState(null)
   const [associatedUsers, setAssociatedUsers] = useState([])
 
@@ -488,7 +493,7 @@ export default function JobForm() {
 
   useEffect(() => {
     if (!isEdit) return
-    getJobById(id).then(job => {
+    getJobById(id).then(async job => {
       const catRaw = job.job_category ? String(job.job_category).toLowerCase() : ''
       const jc = catRaw === 'frequent' ? JOB_CATEGORIES.FREQUENT : JOB_CATEGORIES.ONETIME
       setCategory(jc)
@@ -527,6 +532,14 @@ export default function JobForm() {
       setHelpee(assoc.find(a => a.role === 'helpee')?.users || null)
       setHelpers(assoc.filter(a => a.role === 'helper').map(a => a.users).filter(Boolean))
       setSupervisor(assoc.find(a => a.role === 'supervisor')?.users || null)
+
+      // Load active worker replacements → drives the "Replaced" tag
+      try {
+        const repls = await getWorkerReplacementsForJob(job.id)
+        setActiveReplacementIds(new Set(
+          repls.filter(r => r.active).map(r => r.replacement_user_id)
+        ))
+      } catch { /* tag is non-critical */ }
 
       prevHelperIdsRef.current = assoc
         .filter(a => a.role === 'helper')
@@ -953,9 +966,15 @@ export default function JobForm() {
                 {/* First row: label + first helper (or placeholder) + add button — mirrors Helpee/Supervisor layout */}
                 <div className="flex gap-2 items-center">
                   <div className="form-label w-28 flex-shrink-0">Helper(s)</div>
-                  <div className="form-cell flex-1 text-sm">
+                  <div className="form-cell flex-1 text-sm flex items-center gap-2">
                     {helpers.length > 0
-                      ? helpers[0].user_name
+                      ? <>
+                          <span>{helpers[0].user_name}</span>
+                          {activeReplacementIds.has(helpers[0].id) && (
+                            <span className="text-[10px] font-bold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full"
+                              title="Covering during another worker's absence">Replaced</span>
+                          )}
+                        </>
                       : <span className="text-hh-placeholder">{canManage ? 'No helpers assigned' : ''}</span>
                     }
                   </div>
@@ -964,14 +983,24 @@ export default function JobForm() {
                       className="btn-icon w-9 h-9 flex-shrink-0 hover:text-hh-error" title="Remove Helper">✕</button>
                   )}
                   {canManage && (
-                    <button onClick={() => setUserPickerRole('helper')} className="btn-add w-9 h-9 flex-shrink-0" title="Add Helper">⊕</button>
+                    <button
+                      onClick={() => ONGOING_STATUSES_JF.includes(status)
+                        ? setShowAddChooser(true)
+                        : setUserPickerRole('helper')}
+                      className="btn-add w-9 h-9 flex-shrink-0" title="Add Helper">⊕</button>
                   )}
                 </div>
                 {/* Additional helpers (2nd onwards) — indented to align with value column */}
                 {helpers.slice(1).map(h => (
                   <div key={h.id} className="flex gap-2 items-center">
                     <div className="w-28 flex-shrink-0" />
-                    <div className="form-cell flex-1 text-sm">{h.user_name}</div>
+                    <div className="form-cell flex-1 text-sm flex items-center gap-2">
+                      <span>{h.user_name}</span>
+                      {activeReplacementIds.has(h.id) && (
+                        <span className="text-[10px] font-bold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full"
+                          title="Covering during another worker's absence">Replaced</span>
+                      )}
+                    </div>
                     {canManage && (
                       <button onClick={() => removeHelper(h.id)}
                         className="btn-icon w-9 h-9 flex-shrink-0 hover:text-hh-error" title="Remove Helper">✕</button>
@@ -1194,6 +1223,33 @@ export default function JobForm() {
           </div>
         </div>
       )}
+
+      {showAddChooser && (
+        <AddWorkerChooser
+          onAdditional={() => { setShowAddChooser(false); setUserPickerRole('helper') }}
+          onReplacement={() => {
+            setShowAddChooser(false)
+            setReplacementFlow({ replacedUserId: '', fromDate: '', toDate: '', reason: '', candidates: null, replacementUserId: '', loading: false, err: '' })
+          }}
+          onClose={() => setShowAddChooser(false)}
+          canReplace={helpers.length > 0}
+        />
+      )}
+
+      {replacementFlow && (
+        <ReplacementFlowModal
+          flow={replacementFlow}
+          setFlow={setReplacementFlow}
+          jobId={dbJobId}
+          currentHelpers={helpers}
+          createdBy={authUser?.id}
+          onDone={(newWorker) => {
+            setHelpers(prev => prev.find(h => h.id === newWorker.id) ? prev : [...prev, newWorker])
+            setReplacementFlow(null)
+          }}
+          onClose={() => setReplacementFlow(null)}
+        />
+      )}
       {showInvoiceModal && dbJobId && (
         <InvoiceModal jobId={dbJobId} existing={invoice}
           onSave={(inv) => { setInvoice(inv); setShowInvoiceModal(false) }}
@@ -1240,5 +1296,150 @@ export default function JobForm() {
         />
       )}
     </MainLayout>
+  )
+}
+
+/* ── Additional vs Replacement chooser (shown on ongoing jobs) ── */
+function AddWorkerChooser({ onAdditional, onReplacement, onClose, canReplace }) {
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-5" onClick={e => e.stopPropagation()}>
+        <h2 className="text-lg font-bold text-hh-text mb-1">Add Worker</h2>
+        <p className="text-sm text-hh-placeholder mb-4">
+          This job is already in progress. Are you adding an additional worker, or replacing one?
+        </p>
+        <div className="grid grid-cols-1 gap-3">
+          <button onClick={onAdditional}
+            className="text-left px-4 py-4 rounded-xl border border-gray-200 hover:border-hh-green hover:bg-green-50 transition-colors">
+            <div className="font-semibold text-hh-text">Additional worker</div>
+            <div className="text-sm text-hh-placeholder">Assign another worker on top of the current team.</div>
+          </button>
+          <button onClick={onReplacement} disabled={!canReplace}
+            className="text-left px-4 py-4 rounded-xl border border-gray-200 hover:border-amber-400 hover:bg-amber-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+            <div className="font-semibold text-hh-text">Replacement</div>
+            <div className="text-sm text-hh-placeholder">
+              {canReplace ? 'Cover an existing worker for a date range.' : 'No existing worker to replace.'}
+            </div>
+          </button>
+        </div>
+        <div className="flex justify-end mt-4">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-hh-placeholder">Cancel</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ── Replacement flow: pick A, set From–To + reason, pick filtered B ── */
+function ReplacementFlowModal({ flow, setFlow, jobId, currentHelpers, createdBy, onDone, onClose }) {
+  const upd = (patch) => setFlow(prev => ({ ...prev, ...patch }))
+
+  const loadCandidates = async () => {
+    if (!flow.replacedUserId || !flow.fromDate || !flow.toDate) {
+      upd({ err: 'Select who is being replaced and the coverage dates first.' }); return
+    }
+    if (flow.toDate < flow.fromDate) {
+      upd({ err: 'To date must be on or after From date.' }); return
+    }
+    upd({ loading: true, err: '', candidates: null })
+    try {
+      const list = await getAvailableReplacementWorkers(jobId, flow.replacedUserId, flow.fromDate, flow.toDate)
+      upd({ candidates: list, loading: false })
+    } catch (e) {
+      upd({ err: e.message || 'Could not load available workers', loading: false })
+    }
+  }
+
+  const submit = async () => {
+    if (!flow.replacementUserId) { upd({ err: 'Select a replacement worker.' }); return }
+    upd({ loading: true, err: '' })
+    try {
+      await createWorkerReplacement({
+        jobId,
+        replacedUserId: flow.replacedUserId,
+        replacementUserId: flow.replacementUserId,
+        fromDate: flow.fromDate,
+        toDate: flow.toDate,
+        reason: flow.reason,
+        createdBy,
+      })
+      const picked = (flow.candidates || []).find(c => c.id === flow.replacementUserId)
+      onDone(picked || { id: flow.replacementUserId, user_name: 'Replacement' })
+    } catch (e) {
+      upd({ err: e.message || 'Could not assign replacement', loading: false })
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
+        <div className="px-5 pt-5 pb-3 border-b border-gray-100 shrink-0">
+          <h2 className="text-lg font-bold text-hh-text">Replace Worker</h2>
+        </div>
+
+        <div className="px-5 py-4 overflow-y-auto flex-1">
+          <label className="block text-xs text-hh-placeholder mb-1">Worker being replaced</label>
+          <select value={flow.replacedUserId}
+            onChange={e => upd({ replacedUserId: e.target.value, candidates: null, replacementUserId: '' })}
+            className="form-cell px-3 py-2 text-sm w-full mb-4">
+            <option value="">Select worker…</option>
+            {currentHelpers.map(h => <option key={h.id} value={h.id}>{h.user_name}</option>)}
+          </select>
+
+          <div className="grid grid-cols-2 gap-3 mb-4">
+            <div>
+              <label className="block text-xs text-hh-placeholder mb-1">From</label>
+              <input type="date" value={flow.fromDate}
+                onChange={e => upd({ fromDate: e.target.value, candidates: null, replacementUserId: '' })}
+                className="form-cell px-3 py-2 text-sm w-full" />
+            </div>
+            <div>
+              <label className="block text-xs text-hh-placeholder mb-1">To</label>
+              <input type="date" value={flow.toDate}
+                onChange={e => upd({ toDate: e.target.value, candidates: null, replacementUserId: '' })}
+                className="form-cell px-3 py-2 text-sm w-full" />
+            </div>
+          </div>
+
+          <label className="block text-xs text-hh-placeholder mb-1">Reason for replacement</label>
+          <textarea value={flow.reason} onChange={e => upd({ reason: e.target.value })}
+            placeholder="Why is a replacement needed?"
+            className="form-cell px-3 py-2 text-sm w-full h-16 resize-none mb-4" />
+
+          {flow.candidates === null ? (
+            <button onClick={loadCandidates} disabled={flow.loading}
+              className="w-full py-2.5 text-sm font-medium border border-hh-green text-hh-green rounded-xl disabled:opacity-50">
+              {flow.loading ? 'Checking availability…' : 'Find available workers'}
+            </button>
+          ) : (
+            <>
+              <label className="block text-xs text-hh-placeholder mb-1">
+                Available worker {flow.candidates.length === 0 && '(none available for this window)'}
+              </label>
+              <select value={flow.replacementUserId} onChange={e => upd({ replacementUserId: e.target.value })}
+                className="form-cell px-3 py-2 text-sm w-full" disabled={flow.candidates.length === 0}>
+                <option value="">Select replacement…</option>
+                {flow.candidates.map(c => <option key={c.id} value={c.id}>{c.user_name}</option>)}
+              </select>
+              <p className="text-[11px] text-hh-placeholder mt-1">
+                Workers on leave or already booked in this window are hidden.
+              </p>
+            </>
+          )}
+
+          {flow.err && <div className="bg-red-50 text-hh-error text-sm rounded-lg px-3 py-2 mt-3">{flow.err}</div>}
+        </div>
+
+        <div className="px-5 py-4 border-t border-gray-100 flex gap-3 shrink-0">
+          <button onClick={onClose} className="flex-1 py-3 text-sm font-medium text-hh-placeholder border border-gray-200 rounded-xl">
+            Cancel
+          </button>
+          <button onClick={submit} disabled={flow.loading || flow.candidates === null || !flow.replacementUserId}
+            className="flex-1 bg-amber-600 text-white font-bold py-3 rounded-xl disabled:opacity-50">
+            {flow.loading ? 'Assigning…' : 'Assign Replacement'}
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
