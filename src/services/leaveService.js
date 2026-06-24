@@ -10,40 +10,45 @@ import { supabase } from '../../supabase/client'
 // ════════════════════════════════════════════════════════════════════════
 
 /** Worker or supervisor submits a leave request. */
-export async function applyForLeave(requesterId, { leaveDate, duration, reason, note }) {
+export async function applyForLeave(requesterId, { leaveDate, leaveToDate, duration, reason, note }) {
   const newDuration = duration || 'full_day'
+  const toDate = leaveToDate || leaveDate
 
-  // One leave request per day — with a half-day exception:
-  //   • If a full-day request already exists → block any new request that day.
-  //   • If a half-day exists → only allow the OPPOSITE half (not the same half,
-  //     not a full day).
-  // Rejected requests don't count (the day is effectively free again).
+  if (toDate < leaveDate) {
+    throw new Error('The "to" date must be on or after the "from" date.')
+  }
+
+  const isSingleDay = toDate === leaveDate
+
+  // Find any non-rejected leave that overlaps the requested range.
   const { data: existing, error: exErr } = await supabase
     .from('leave_requests')
-    .select('id, duration, status')
+    .select('id, duration, status, leave_date, leave_to_date')
     .eq('requester_id', requesterId)
-    .eq('leave_date', leaveDate)
     .neq('status', 'rejected')
   if (exErr) throw exErr
 
-  if (existing && existing.length > 0) {
-    const hasFull = existing.some(r => r.duration === 'full_day')
-    const hasFirst = existing.some(r => r.duration === 'first_half')
-    const hasSecond = existing.some(r => r.duration === 'second_half')
+  const overlapping = (existing || []).filter(r => {
+    const rFrom = r.leave_date
+    const rTo = r.leave_to_date || r.leave_date
+    return rFrom <= toDate && leaveDate <= rTo  // ranges intersect
+  })
 
-    if (hasFull) {
-      throw new Error('You already have a full-day leave request for this date.')
+  if (overlapping.length > 0) {
+    if (isSingleDay && overlapping.every(r => (r.leave_date === leaveDate && (r.leave_to_date || r.leave_date) === leaveDate))) {
+      // Single-day half-day exception still applies when the only overlap is
+      // the same single day.
+      const hasFull = overlapping.some(r => r.duration === 'full_day')
+      const hasFirst = overlapping.some(r => r.duration === 'first_half')
+      const hasSecond = overlapping.some(r => r.duration === 'second_half')
+      if (hasFull) throw new Error('You already have a full-day leave request for this date.')
+      if (newDuration === 'full_day') throw new Error('You already have a half-day leave request for this date. You can only request the remaining half.')
+      if (newDuration === 'first_half' && hasFirst) throw new Error('You already requested the morning (first half) for this date.')
+      if (newDuration === 'second_half' && hasSecond) throw new Error('You already requested the afternoon (second half) for this date.')
+      // else opposite half → allowed
+    } else {
+      throw new Error('You already have a leave request that overlaps these dates.')
     }
-    if (newDuration === 'full_day') {
-      throw new Error('You already have a half-day leave request for this date. You can only request the remaining half.')
-    }
-    if (newDuration === 'first_half' && hasFirst) {
-      throw new Error('You already requested the morning (first half) for this date.')
-    }
-    if (newDuration === 'second_half' && hasSecond) {
-      throw new Error('You already requested the afternoon (second half) for this date.')
-    }
-    // Otherwise: existing half + opposite half → allowed.
   }
 
   const { data, error } = await supabase
@@ -51,6 +56,7 @@ export async function applyForLeave(requesterId, { leaveDate, duration, reason, 
     .insert({
       requester_id: requesterId,
       leave_date: leaveDate,
+      leave_to_date: toDate,
       duration: newDuration,
       reason,
       note: note || null,
@@ -185,18 +191,27 @@ export async function getOpenReplacementFlags() {
   const jobIds = [...new Set(flags.map(f => f.job_id))]
   const userIds = [...new Set(flags.map(f => f.absent_user_id))]
   const [{ data: jobs }, { data: users }] = await Promise.all([
-    supabase.from('jobs').select('id, job_id, job_name').in('id', jobIds),
+    supabase.from('jobs').select('id, job_id, job_name, status').in('id', jobIds),
     supabase.from('users').select('id, user_name').in('id', userIds),
   ])
   const jMap = {}; (jobs || []).forEach(j => { jMap[j.id] = j })
   const uMap = {}; (users || []).forEach(u => { uMap[u.id] = u })
 
-  return flags.map(f => ({
-    ...f,
-    job_code: jMap[f.job_id]?.job_id || '—',
-    job_name: jMap[f.job_id]?.job_name || '—',
-    absent_name: uMap[f.absent_user_id]?.user_name || '—',
-  }))
+  // Only surface replacements for jobs that are still active/ongoing — a
+  // closed/completed/cancelled job no longer needs a replacement.
+  const CLOSED = ['job_closed', 'payment_confirmed', 'cancelled']
+
+  return flags
+    .filter(f => {
+      const st = jMap[f.job_id]?.status
+      return st && !CLOSED.includes(st)
+    })
+    .map(f => ({
+      ...f,
+      job_code: jMap[f.job_id]?.job_id || '—',
+      job_name: jMap[f.job_id]?.job_name || '—',
+      absent_name: uMap[f.absent_user_id]?.user_name || '—',
+    }))
 }
 
 /** Get replacement flags for a specific job (for the badge on job views). */

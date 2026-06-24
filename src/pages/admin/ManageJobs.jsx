@@ -147,7 +147,7 @@ export default function ManageJobs() {
                 </div>
                 <div className="table-row rounded-hh-lg px-2 text-xs flex items-center gap-1.5">
                   <span className="truncate">{job.job_name}</span>
-                  {flaggedJobIds.has(job.id) && (
+                  {flaggedJobIds.has(job.id) && !['job_closed','payment_confirmed','cancelled'].includes(job.status) && (
                     <span className="shrink-0 text-[9px] font-bold bg-red-100 text-hh-error px-1.5 py-0.5 rounded-full whitespace-nowrap"
                       title="A worker is on leave — replacement needed">
                       ⚠ REPLACE

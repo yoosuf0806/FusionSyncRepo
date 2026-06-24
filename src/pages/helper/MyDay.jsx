@@ -385,11 +385,14 @@ function CompactJobCard({ job, busy, onCheckIn, onCheckOut, onOpen }) {
 /* ── Apply Leave modal — preset reasons, optional note, half/full day ── */
 function ApplyLeaveModal({ userId, onClose, onSubmitted }) {
   const [leaveDate, setLeaveDate] = useState(new Date().toISOString().slice(0, 10))
+  const [leaveToDate, setLeaveToDate] = useState(new Date().toISOString().slice(0, 10))
   const [duration, setDuration] = useState('full_day')
   const [reason, setReason] = useState('sick')
   const [note, setNote] = useState('')
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
+
+  const isSingleDay = leaveToDate === leaveDate
 
   const REASONS = [
     { key: 'sick', label: 'Sick' },
@@ -406,7 +409,13 @@ function ApplyLeaveModal({ userId, onClose, onSubmitted }) {
   const submit = async () => {
     setSaving(true); setErr('')
     try {
-      await applyForLeave(userId, { leaveDate, duration, reason, note })
+      await applyForLeave(userId, {
+        leaveDate,
+        leaveToDate,
+        duration: isSingleDay ? duration : 'full_day',
+        reason,
+        note,
+      })
       onSubmitted()
     } catch (e) {
       setErr(e.message || 'Could not submit leave')
@@ -427,9 +436,23 @@ function ApplyLeaveModal({ userId, onClose, onSubmitted }) {
 
         {/* Body (scrollable) */}
         <div className="px-5 py-4 overflow-y-auto flex-1">
-          <label className="block text-xs text-hh-placeholder mb-1">Date</label>
-          <input type="date" value={leaveDate} onChange={e => setLeaveDate(e.target.value)}
-            className="form-cell px-3 py-2 text-sm w-full mb-4" />
+          <div className="grid grid-cols-2 gap-3 mb-4">
+            <div>
+              <label className="block text-xs text-hh-placeholder mb-1">From</label>
+              <input type="date" value={leaveDate}
+                onChange={e => {
+                  setLeaveDate(e.target.value)
+                  if (leaveToDate < e.target.value) setLeaveToDate(e.target.value)
+                }}
+                className="form-cell px-3 py-2 text-sm w-full" />
+            </div>
+            <div>
+              <label className="block text-xs text-hh-placeholder mb-1">To</label>
+              <input type="date" value={leaveToDate} min={leaveDate}
+                onChange={e => setLeaveToDate(e.target.value)}
+                className="form-cell px-3 py-2 text-sm w-full" />
+            </div>
+          </div>
 
           <label className="block text-xs text-hh-placeholder mb-2">Reason</label>
           <div className="grid grid-cols-2 gap-2 mb-4">
@@ -444,18 +467,22 @@ function ApplyLeaveModal({ userId, onClose, onSubmitted }) {
             ))}
           </div>
 
-          <label className="block text-xs text-hh-placeholder mb-2">Duration</label>
-          <div className="space-y-2 mb-4">
-            {DURATIONS.map(d => (
-              <button key={d.key} onClick={() => setDuration(d.key)}
-                className={`w-full text-left px-3 py-2.5 rounded-xl border text-sm font-medium
-                  transition-colors ${duration === d.key
-                    ? 'border-hh-green bg-green-50 text-hh-green'
-                    : 'border-gray-200 text-hh-text'}`}>
-                {d.label}
-              </button>
-            ))}
-          </div>
+          {isSingleDay && (
+            <>
+              <label className="block text-xs text-hh-placeholder mb-2">Duration</label>
+              <div className="space-y-2 mb-4">
+                {DURATIONS.map(d => (
+                  <button key={d.key} onClick={() => setDuration(d.key)}
+                    className={`w-full text-left px-3 py-2.5 rounded-xl border text-sm font-medium
+                      transition-colors ${duration === d.key
+                        ? 'border-hh-green bg-green-50 text-hh-green'
+                        : 'border-gray-200 text-hh-text'}`}>
+                    {d.label}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
 
           <label className="block text-xs text-hh-placeholder mb-1">Note (optional)</label>
           <textarea value={note} onChange={e => setNote(e.target.value)}

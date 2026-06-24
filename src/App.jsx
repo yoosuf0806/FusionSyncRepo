@@ -159,6 +159,8 @@ export default function App() {
             element={<RoleRoute allowedRoles={HELPER_ONLY}><Navigate to="/helper/my-day" replace /></RoleRoute>} />
           <Route path="/helper/my-day"
             element={<RoleRoute allowedRoles={HELPER_ONLY}><MyDay /></RoleRoute>} />
+          <Route path="/helper/manage-jobs"
+            element={<RoleRoute allowedRoles={HELPER_ONLY}><ManageJobs /></RoleRoute>} />
           <Route path="/helper/jobs/:id"
             element={<RoleRoute allowedRoles={HELPER_ONLY}><JobForm /></RoleRoute>} />
 

@@ -894,9 +894,12 @@ export function isJobExpired(job, todayStr) {
   if (CLOSED_STATUSES.includes(job.status)) return false
   const today = todayStr || new Date().toISOString().slice(0, 10)
 
+  // Recurring → last scheduled date is job_to_date (fallback job_from_date).
+  // One-time → job_date, but fall back to job_from_date for older records that
+  // stored the single date there before the job_date column was used.
   const lastDate = job.job_category === 'frequent'
     ? (job.job_to_date || job.job_from_date)
-    : job.job_date
+    : (job.job_date || job.job_from_date || job.job_to_date)
   if (!lastDate) return false
   return lastDate < today
 }
@@ -1105,6 +1108,77 @@ export async function createWorkerReplacement({
     .single()
   if (error) throw error
   return data
+}
+
+/**
+ * Per-worker status tags for a job's associated users, for display to ALL
+ * roles. Returns a map: userId → { onLeave, replaced, isReplacement, coveringFor }.
+ *   • onLeave       — worker has approved leave overlapping today's schedule,
+ *                     or an open replacement flag dated today
+ *   • replaced      — worker A who is being covered right now (active window)
+ *   • isReplacement — worker B currently covering someone (active window)
+ *   • coveringFor   — name of A, when isReplacement
+ */
+export async function getJobWorkerStatuses(jobId) {
+  const today = new Date().toISOString().slice(0, 10)
+  const statuses = {}
+  const ensure = (id) => (statuses[id] ||= { onLeave: false, replaced: false, isReplacement: false, coveringFor: null })
+
+  // 1. Active manual replacements (range-based)
+  const { data: repls } = await supabase
+    .from('worker_replacements')
+    .select('replaced_user_id, replacement_user_id, from_date, to_date')
+    .eq('job_id', jobId)
+  for (const r of repls || []) {
+    if (today >= r.from_date && today <= r.to_date) {
+      ensure(r.replaced_user_id).replaced = true
+      ensure(r.replacement_user_id).isReplacement = true
+    }
+  }
+
+  // 2. Open leave-driven replacement flags (per-date) for today
+  const { data: flags } = await supabase
+    .from('job_replacement_flags')
+    .select('absent_user_id, replacement_user_id, flag_date')
+    .eq('job_id', jobId)
+    .eq('flag_date', today)
+  for (const f of flags || []) {
+    ensure(f.absent_user_id).onLeave = true
+    if (f.replacement_user_id) ensure(f.replacement_user_id).isReplacement = true
+  }
+
+  // 3. Approved leave overlapping today (covers cases without a flag yet)
+  const userIds = [...new Set((repls || []).flatMap(r => [r.replaced_user_id, r.replacement_user_id])
+    .concat((flags || []).map(f => f.absent_user_id)))]
+  // Also check every associated worker for approved leave today
+  const { data: assoc } = await supabase
+    .from('job_associated_users')
+    .select('user_id')
+    .eq('job_id', jobId)
+  const allWorkerIds = [...new Set((assoc || []).map(a => a.user_id).concat(userIds))]
+  if (allWorkerIds.length) {
+    const { data: leaves } = await supabase
+      .from('leave_requests')
+      .select('requester_id')
+      .eq('status', 'approved')
+      .eq('leave_date', today)
+      .in('requester_id', allWorkerIds)
+    for (const lv of leaves || []) ensure(lv.requester_id).onLeave = true
+  }
+
+  // Attach the "covering for" name where applicable
+  const coverPairs = (repls || []).filter(r => today >= r.from_date && today <= r.to_date)
+  if (coverPairs.length) {
+    const aIds = [...new Set(coverPairs.map(r => r.replaced_user_id))]
+    const { data: aUsers } = await supabase.from('users').select('id, user_name').in('id', aIds)
+    const aMap = {}; (aUsers || []).forEach(u => { aMap[u.id] = u.user_name })
+    for (const r of coverPairs) {
+      const b = ensure(r.replacement_user_id)
+      b.coveringFor = aMap[r.replaced_user_id] || null
+    }
+  }
+
+  return statuses
 }
 
 /**

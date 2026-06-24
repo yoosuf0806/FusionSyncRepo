@@ -316,7 +316,7 @@ function LeaveReviewList({ leaves, onReview }) {
               )}
             </div>
             <p className="text-sm text-hh-placeholder mt-0.5">
-              {l.leave_date} · {durLabel[l.duration]} · {reasonLabel[l.reason]}
+              {l.leave_date}{l.leave_to_date && l.leave_to_date !== l.leave_date ? ` – ${l.leave_to_date}` : ''} · {durLabel[l.duration]} · {reasonLabel[l.reason]}
             </p>
             {l.note && <p className="text-xs text-hh-placeholder mt-1 italic">"{l.note}"</p>}
           </div>

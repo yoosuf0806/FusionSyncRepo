@@ -9,6 +9,7 @@ import {
   getJobMessages, postJobMessage, notifyHelpersAssignedToJob,
   autoCreateOrUpdateInvoice, checkWorkerAvailability,
   getAvailableReplacementWorkers, createWorkerReplacement, getWorkerReplacementsForJob,
+  getJobWorkerStatuses,
 } from '../../services/jobService'
 import { getJobSpecs, getQuestionsForSpec } from '../../services/jobSpecService'
 import { getUsers } from '../../services/userService'
@@ -340,7 +341,7 @@ export default function JobForm() {
 
   const [helpee, setHelpee] = useState(null)
   const [helpers, setHelpers] = useState([])
-  const [activeReplacementIds, setActiveReplacementIds] = useState(new Set())
+  const [workerStatuses, setWorkerStatuses] = useState({})
   const [pendingConflict, setPendingConflict] = useState(null) // { user, conflicts }
   const [showAddChooser, setShowAddChooser] = useState(false)   // Additional vs Replacement
   const [replacementFlow, setReplacementFlow] = useState(null)  // replacement modal state
@@ -533,13 +534,11 @@ export default function JobForm() {
       setHelpers(assoc.filter(a => a.role === 'helper').map(a => a.users).filter(Boolean))
       setSupervisor(assoc.find(a => a.role === 'supervisor')?.users || null)
 
-      // Load active worker replacements → drives the "Replaced" tag
+      // Load per-worker status tags (on leave / replaced / replacement) — all roles
       try {
-        const repls = await getWorkerReplacementsForJob(job.id)
-        setActiveReplacementIds(new Set(
-          repls.filter(r => r.active).map(r => r.replacement_user_id)
-        ))
-      } catch { /* tag is non-critical */ }
+        const st = await getJobWorkerStatuses(job.id)
+        setWorkerStatuses(st || {})
+      } catch { /* tags are non-critical */ }
 
       prevHelperIdsRef.current = assoc
         .filter(a => a.role === 'helper')
@@ -966,14 +965,11 @@ export default function JobForm() {
                 {/* First row: label + first helper (or placeholder) + add button — mirrors Helpee/Supervisor layout */}
                 <div className="flex gap-2 items-center">
                   <div className="form-label w-28 flex-shrink-0">Helper(s)</div>
-                  <div className="form-cell flex-1 text-sm flex items-center gap-2">
+                  <div className="form-cell flex-1 text-sm flex items-center gap-2 flex-wrap">
                     {helpers.length > 0
                       ? <>
                           <span>{helpers[0].user_name}</span>
-                          {activeReplacementIds.has(helpers[0].id) && (
-                            <span className="text-[10px] font-bold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full"
-                              title="Covering during another worker's absence">Replaced</span>
-                          )}
+                          <WorkerStatusTags status={workerStatuses[helpers[0].id]} />
                         </>
                       : <span className="text-hh-placeholder">{canManage ? 'No helpers assigned' : ''}</span>
                     }
@@ -994,12 +990,9 @@ export default function JobForm() {
                 {helpers.slice(1).map(h => (
                   <div key={h.id} className="flex gap-2 items-center">
                     <div className="w-28 flex-shrink-0" />
-                    <div className="form-cell flex-1 text-sm flex items-center gap-2">
+                    <div className="form-cell flex-1 text-sm flex items-center gap-2 flex-wrap">
                       <span>{h.user_name}</span>
-                      {activeReplacementIds.has(h.id) && (
-                        <span className="text-[10px] font-bold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full"
-                          title="Covering during another worker's absence">Replaced</span>
-                      )}
+                      <WorkerStatusTags status={workerStatuses[h.id]} />
                     </div>
                     {canManage && (
                       <button onClick={() => removeHelper(h.id)}
@@ -1441,5 +1434,28 @@ function ReplacementFlowModal({ flow, setFlow, jobId, currentHelpers, createdBy,
         </div>
       </div>
     </div>
+  )
+}
+
+/* ── Worker status tags (on leave / replaced / covering) — visible to all roles ── */
+function WorkerStatusTags({ status }) {
+  if (!status) return null
+  return (
+    <>
+      {status.onLeave && (
+        <span className="text-[10px] font-bold bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full"
+          title="This worker is on approved leave">On Leave</span>
+      )}
+      {status.replaced && (
+        <span className="text-[10px] font-bold bg-red-100 text-hh-error px-1.5 py-0.5 rounded-full"
+          title="This worker is being covered by a replacement">Replaced</span>
+      )}
+      {status.isReplacement && (
+        <span className="text-[10px] font-bold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full"
+          title={status.coveringFor ? `Covering for ${status.coveringFor}` : 'Covering during another worker\u2019s absence'}>
+          Replacement{status.coveringFor ? ` for ${status.coveringFor}` : ''}
+        </span>
+      )}
+    </>
   )
 }
