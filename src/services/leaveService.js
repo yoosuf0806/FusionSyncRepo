@@ -145,39 +145,67 @@ export async function reviewLeaveRequest(leaveId, decision, reviewerId, reviewNo
   return leave
 }
 
-export async function assignReplacement(flagIdOrIds, replacementUserId) {
-  const flagIds = Array.isArray(flagIdOrIds) ? flagIdOrIds : [flagIdOrIds]
-  if (flagIds.length === 0) throw new Error('No replacement dates to fill.')
+/**
+ * Assign a replacement worker (B) for an absent worker (A) on a job over a
+ * chosen [fromDate, toDate] window. Fills any open per-date flags that fall in
+ * the window, records a worker_replacements coverage row (drives the
+ * "Replaced"/"Replacement for" tags + customer "Replaced" tag), and adds B to
+ * the job. Notifications fire via DB triggers.
+ *
+ * group = { job_id, absent_user_id, flag_ids:[...] }
+ */
+export async function assignReplacement(group, replacementUserId, fromDate, toDate, createdBy) {
+  const jobId = group.job_id
+  const from = fromDate || group.from_date
+  const to = toDate || group.to_date
 
-  // Resolve the job from the first flag, add the replacement worker to the job
-  // first so the customer-visible assignment exists before notifications fire.
-  const { data: firstFlag } = await supabase
-    .from('job_replacement_flags').select('job_id').eq('id', flagIds[0]).single()
-  if (firstFlag?.job_id) {
-    try {
-      await supabase.from('job_associated_users').upsert({
-        job_id: firstFlag.job_id,
-        user_id: replacementUserId,
-        role: 'helper',
-      }, { onConflict: 'job_id,user_id,role' })
-    } catch (e) {
-      console.warn('Associating replacement worker failed:', e?.message || e)
-    }
+  // Add B to the job first
+  try {
+    await supabase.from('job_associated_users').upsert({
+      job_id: jobId, user_id: replacementUserId, role: 'helper',
+    }, { onConflict: 'job_id,user_id,role' })
+  } catch (e) {
+    console.warn('Associating replacement worker failed:', e?.message || e)
   }
 
-  // Fill every flag in the range — the trg_notify_replacement_assigned trigger
-  // (SECURITY DEFINER) notifies the customer + replacement worker per flag.
-  const { data: filled, error } = await supabase
+  // Fill the open per-date flags that fall within the chosen window.
+  // (Re-query rather than trusting the passed ids, since the supervisor may
+  //  have widened/narrowed the range away from the original flag dates.)
+  const { data: openFlags } = await supabase
     .from('job_replacement_flags')
-    .update({
+    .select('id, flag_date')
+    .eq('job_id', jobId)
+    .eq('absent_user_id', group.absent_user_id)
+    .is('replacement_user_id', null)
+    .gte('flag_date', from)
+    .lte('flag_date', to)
+  const fillIds = (openFlags || []).map(f => f.id)
+  if (fillIds.length) {
+    await supabase
+      .from('job_replacement_flags')
+      .update({ replacement_user_id: replacementUserId, replaced_at: new Date().toISOString() })
+      .in('id', fillIds)
+  }
+
+  // Record the coverage window (A→B) so the "Replaced" / "Replacement for"
+  // tags reflect the supervisor-chosen range. Notifications to B + customer
+  // fire from the trg_notify_worker_replacement trigger on this insert.
+  const { data: cover, error } = await supabase
+    .from('worker_replacements')
+    .insert({
+      job_id: jobId,
+      replaced_user_id: group.absent_user_id,
       replacement_user_id: replacementUserId,
-      replaced_at: new Date().toISOString(),
+      from_date: from,
+      to_date: to,
+      reason: 'Leave coverage',
+      created_by: createdBy || null,
     })
-    .in('id', flagIds)
     .select('*')
+    .single()
   if (error) throw error
 
-  return filled
+  return cover
 }
 
 /** Get open (unfilled) replacement flags for the internal dashboard. */

@@ -55,6 +55,9 @@ export default function ManageAttendance() {
   const [leaves, setLeaves] = useState(null)
   const [flags, setFlags] = useState(null)
   const [replacing, setReplacing] = useState(null)  // flag being filled
+  const [replSearch, setReplSearch] = useState('')
+  const [replFrom, setReplFrom] = useState('')
+  const [replTo, setReplTo] = useState('')
 
   const load = async () => {
     setRows(null); setError('')
@@ -266,10 +269,34 @@ export default function ManageAttendance() {
 
       {/* ── REPLACEMENTS NEEDED TAB ── */}
       {tab === 'replacements' && (
-        <ReplacementsList
-          flags={flags}
-          onReplace={(flag) => setReplacing(flag)}
-        />
+        <>
+          <div className="flex flex-wrap items-end gap-3 mb-4">
+            <div className="flex-1 min-w-[180px]">
+              <label className="block text-xs text-hh-placeholder mb-1">Search</label>
+              <input value={replSearch} onChange={e => setReplSearch(e.target.value)}
+                placeholder="Worker or job name"
+                className="form-cell px-3 py-2 text-sm w-full" />
+            </div>
+            <div>
+              <label className="block text-xs text-hh-placeholder mb-1">From</label>
+              <input type="date" value={replFrom} onChange={e => setReplFrom(e.target.value)}
+                className="form-cell px-3 py-2 text-sm" />
+            </div>
+            <div>
+              <label className="block text-xs text-hh-placeholder mb-1">To</label>
+              <input type="date" value={replTo} onChange={e => setReplTo(e.target.value)}
+                className="form-cell px-3 py-2 text-sm" />
+            </div>
+            {(replSearch || replFrom || replTo) && (
+              <button onClick={() => { setReplSearch(''); setReplFrom(''); setReplTo('') }}
+                className="px-3 py-2 text-sm text-hh-placeholder underline">Clear</button>
+            )}
+          </div>
+          <ReplacementsList
+            flags={filterReplacements(flags, replSearch, replFrom, replTo)}
+            onReplace={(flag) => setReplacing(flag)}
+          />
+        </>
       )}
 
       {editing && (
@@ -284,6 +311,7 @@ export default function ManageAttendance() {
       {replacing && (
         <ReplacementModal
           flag={replacing}
+          viewerId={user?.id}
           onClose={() => setReplacing(null)}
           onAssigned={() => { setReplacing(null); loadFlags() }}
         />
@@ -336,6 +364,23 @@ function LeaveReviewList({ leaves, onReview }) {
   )
 }
 
+/* Filter grouped replacement entries by search text + overlapping date range.
+   Returns null while still loading (passes through), else the filtered array. */
+function filterReplacements(groups, search, from, to) {
+  if (groups === null) return null
+  const q = (search || '').trim().toLowerCase()
+  return groups.filter(g => {
+    if (q) {
+      const hay = `${g.job_name} ${g.job_code} ${g.absent_name}`.toLowerCase()
+      if (!hay.includes(q)) return false
+    }
+    // Date filter: keep groups whose [from_date,to_date] overlaps [from,to]
+    if (from && g.to_date < from) return false
+    if (to && g.from_date > to) return false
+    return true
+  })
+}
+
 /* ── Replacements-needed list ── */
 function ReplacementsList({ flags, onReplace }) {
   if (flags === null) {
@@ -375,26 +420,31 @@ function ReplacementsList({ flags, onReplace }) {
   )
 }
 
-/* ── Replacement assignment modal ── */
-function ReplacementModal({ flag, onClose, onAssigned }) {
+/* ── Replacement assignment modal (editable coverage range) ── */
+function ReplacementModal({ flag, viewerId, onClose, onAssigned }) {
+  const [fromDate, setFromDate] = useState(flag.from_date)
+  const [toDate, setToDate] = useState(flag.to_date)
   const [helpers, setHelpers] = useState(null)
   const [selected, setSelected] = useState('')
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
 
+  // (Re)load smart-filtered candidates whenever the chosen window changes.
   useEffect(() => {
-    // Smart-filtered: exclude the absent worker, anyone already on the job, and
-    // anyone on leave / booked during the coverage window.
-    getAvailableReplacementWorkers(flag.job_id, flag.absent_user_id, flag.from_date, flag.to_date)
+    if (!fromDate || !toDate || toDate < fromDate) { setHelpers([]); return }
+    setHelpers(null); setSelected('')
+    getAvailableReplacementWorkers(flag.job_id, flag.absent_user_id, fromDate, toDate)
       .then(list => setHelpers(list || []))
       .catch(() => setHelpers([]))
-  }, [flag])
+  }, [fromDate, toDate, flag])
 
   const save = async () => {
+    if (!fromDate || !toDate) { setErr('Set the coverage dates.'); return }
+    if (toDate < fromDate) { setErr('To date must be on or after From date.'); return }
     if (!selected) { setErr('Select a replacement worker.'); return }
     setSaving(true); setErr('')
     try {
-      await assignReplacement(flag.flag_ids, selected)  // fills the whole range
+      await assignReplacement(flag, selected, fromDate, toDate, viewerId)
       onAssigned()
     } catch (e) {
       setErr(e.message || 'Could not assign replacement')
@@ -402,18 +452,29 @@ function ReplacementModal({ flag, onClose, onAssigned }) {
     }
   }
 
-  const dateLabel = flag.from_date === flag.to_date
-    ? flag.from_date
-    : `${flag.from_date} to ${flag.to_date}`
-
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4" onClick={onClose}>
       <div className="bg-white rounded-hh-xl shadow-hh-lg w-full max-w-md p-5" onClick={e => e.stopPropagation()}>
         <h2 className="text-lg font-bold text-hh-text mb-1">Replace Worker</h2>
         <p className="text-sm text-hh-placeholder mb-4">
-          {flag.job_code} · {flag.job_name} · {dateLabel}
-          {flag.flag_ids.length > 1 && <span className="ml-1">({flag.flag_ids.length} days)</span>}
+          {flag.job_code} · {flag.job_name} · {flag.absent_name} absent
         </p>
+
+        <label className="block text-xs text-hh-placeholder mb-1">Coverage period</label>
+        <div className="grid grid-cols-2 gap-3 mb-4">
+          <div>
+            <span className="block text-[11px] text-hh-placeholder mb-0.5">From</span>
+            <input type="date" value={fromDate}
+              onChange={e => { setFromDate(e.target.value); if (toDate < e.target.value) setToDate(e.target.value) }}
+              className="form-cell px-3 py-2 text-sm w-full" />
+          </div>
+          <div>
+            <span className="block text-[11px] text-hh-placeholder mb-0.5">To</span>
+            <input type="date" value={toDate} min={fromDate}
+              onChange={e => setToDate(e.target.value)}
+              className="form-cell px-3 py-2 text-sm w-full" />
+          </div>
+        </div>
 
         <label className="block text-xs text-hh-placeholder mb-1">
           Replacement worker {helpers && helpers.length === 0 && '(none available for this window)'}
@@ -422,19 +483,22 @@ function ReplacementModal({ flag, onClose, onAssigned }) {
           <p className="text-sm text-hh-placeholder py-2">Checking availability…</p>
         ) : (
           <select value={selected} onChange={e => setSelected(e.target.value)}
-            className="form-cell px-3 py-2 text-sm w-full mb-3">
+            className="form-cell px-3 py-2 text-sm w-full mb-1" disabled={helpers.length === 0}>
             <option value="">Select a worker…</option>
             {helpers.map(h => (
               <option key={h.id} value={h.id}>{h.user_name}</option>
             ))}
           </select>
         )}
+        <p className="text-[11px] text-hh-placeholder mb-3">
+          Workers on leave or already booked in this window are hidden.
+        </p>
 
         {err && <div className="bg-red-50 text-hh-error text-sm rounded-hh px-3 py-2 mb-3">{err}</div>}
 
         <div className="flex gap-3 justify-end">
           <button onClick={onClose} className="px-4 py-2 text-sm text-hh-placeholder">Cancel</button>
-          <button onClick={save} disabled={saving} className="btn-action px-6 disabled:opacity-50">
+          <button onClick={save} disabled={saving || !selected} className="btn-action px-6 disabled:opacity-50">
             {saving ? 'Assigning…' : 'Assign Replacement'}
           </button>
         </div>
