@@ -1446,7 +1446,7 @@ function WorkerStatusTags({ status }) {
         <span className="text-[10px] font-bold bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full"
           title="This worker is on approved leave">On Leave</span>
       )}
-      {status.replaced && (
+      {status.replaced && !status.onLeave && (
         <span className="text-[10px] font-bold bg-red-100 text-hh-error px-1.5 py-0.5 rounded-full"
           title="This worker is being covered by a replacement">Replaced</span>
       )}

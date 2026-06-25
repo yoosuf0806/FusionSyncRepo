@@ -3,6 +3,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import MainLayout from '../../layouts/MainLayout'
 import {
   getAllAttendanceRecords, correctAttendanceRecord,
+  getAvailableReplacementWorkers,
 } from '../../services/jobService'
 import {
   exportAttendanceCSV, exportAttendanceExcel, exportAttendancePDF,
@@ -11,7 +12,6 @@ import {
   getLeaveRequestsToReview, reviewLeaveRequest,
   getOpenReplacementFlags, assignReplacement,
 } from '../../services/leaveService'
-import { getUsers } from '../../services/userService'
 
 /* ────────────────────────────────────────────────────────────────────────
    ManageAttendance — internal team (admin/supervisor) view of all
@@ -345,21 +345,27 @@ function ReplacementsList({ flags, onReplace }) {
   if (flags.length === 0) {
     return <div className="text-center py-16 text-hh-placeholder text-sm">No replacements needed. 🎉</div>
   }
+  const dateLabel = (g) => g.from_date === g.to_date
+    ? g.from_date
+    : `${g.from_date} to ${g.to_date}`
   return (
     <div className="space-y-3">
-      {flags.map(f => (
-        <div key={f.id} className="bg-white rounded-hh shadow-sm p-4 flex items-center justify-between
-          border-l-4 border-hh-error">
+      {flags.map(g => (
+        <div key={`${g.job_id}_${g.absent_user_id}_${g.from_date}`}
+          className="bg-white rounded-hh shadow-sm p-4 flex items-center justify-between border-l-4 border-hh-error">
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-hh-green font-semibold">{f.job_code}</span>
-              <span className="font-semibold text-hh-text">{f.job_name}</span>
+              <span className="text-hh-green font-semibold">{g.job_code}</span>
+              <span className="font-semibold text-hh-text">{g.job_name}</span>
             </div>
             <p className="text-sm text-hh-placeholder mt-0.5">
-              {f.absent_name} absent on {f.flag_date}
+              {g.absent_name} absent {dateLabel(g)}
+              {g.flag_ids.length > 1 && (
+                <span className="ml-1 text-xs text-hh-placeholder">({g.flag_ids.length} days)</span>
+              )}
             </p>
           </div>
-          <button onClick={() => onReplace(f)}
+          <button onClick={() => onReplace(g)}
             className="px-4 py-2 text-sm font-medium text-white bg-hh-green rounded-hh hover:opacity-90">
             Replace Worker
           </button>
@@ -377,8 +383,10 @@ function ReplacementModal({ flag, onClose, onAssigned }) {
   const [err, setErr] = useState('')
 
   useEffect(() => {
-    getUsers({ userType: 'helper' })
-      .then(data => setHelpers((data || []).filter(u => u.is_active && u.id !== flag.absent_user_id)))
+    // Smart-filtered: exclude the absent worker, anyone already on the job, and
+    // anyone on leave / booked during the coverage window.
+    getAvailableReplacementWorkers(flag.job_id, flag.absent_user_id, flag.from_date, flag.to_date)
+      .then(list => setHelpers(list || []))
       .catch(() => setHelpers([]))
   }, [flag])
 
@@ -386,7 +394,7 @@ function ReplacementModal({ flag, onClose, onAssigned }) {
     if (!selected) { setErr('Select a replacement worker.'); return }
     setSaving(true); setErr('')
     try {
-      await assignReplacement(flag.id, selected)
+      await assignReplacement(flag.flag_ids, selected)  // fills the whole range
       onAssigned()
     } catch (e) {
       setErr(e.message || 'Could not assign replacement')
@@ -394,17 +402,24 @@ function ReplacementModal({ flag, onClose, onAssigned }) {
     }
   }
 
+  const dateLabel = flag.from_date === flag.to_date
+    ? flag.from_date
+    : `${flag.from_date} to ${flag.to_date}`
+
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4" onClick={onClose}>
       <div className="bg-white rounded-hh-xl shadow-hh-lg w-full max-w-md p-5" onClick={e => e.stopPropagation()}>
         <h2 className="text-lg font-bold text-hh-text mb-1">Replace Worker</h2>
         <p className="text-sm text-hh-placeholder mb-4">
-          {flag.job_code} · {flag.job_name} · {flag.flag_date}
+          {flag.job_code} · {flag.job_name} · {dateLabel}
+          {flag.flag_ids.length > 1 && <span className="ml-1">({flag.flag_ids.length} days)</span>}
         </p>
 
-        <label className="block text-xs text-hh-placeholder mb-1">Replacement worker</label>
+        <label className="block text-xs text-hh-placeholder mb-1">
+          Replacement worker {helpers && helpers.length === 0 && '(none available for this window)'}
+        </label>
         {helpers === null ? (
-          <p className="text-sm text-hh-placeholder py-2">Loading workers…</p>
+          <p className="text-sm text-hh-placeholder py-2">Checking availability…</p>
         ) : (
           <select value={selected} onChange={e => setSelected(e.target.value)}
             className="form-cell px-3 py-2 text-sm w-full mb-3">

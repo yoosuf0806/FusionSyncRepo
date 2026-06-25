@@ -145,15 +145,18 @@ export async function reviewLeaveRequest(leaveId, decision, reviewerId, reviewNo
   return leave
 }
 
-export async function assignReplacement(flagId, replacementUserId) {
-  // Add the replacement worker to the job's associated users first, so the
-  // customer-visible assignment exists before notifications fire.
-  const { data: existingFlag } = await supabase
-    .from('job_replacement_flags').select('job_id').eq('id', flagId).single()
-  if (existingFlag?.job_id) {
+export async function assignReplacement(flagIdOrIds, replacementUserId) {
+  const flagIds = Array.isArray(flagIdOrIds) ? flagIdOrIds : [flagIdOrIds]
+  if (flagIds.length === 0) throw new Error('No replacement dates to fill.')
+
+  // Resolve the job from the first flag, add the replacement worker to the job
+  // first so the customer-visible assignment exists before notifications fire.
+  const { data: firstFlag } = await supabase
+    .from('job_replacement_flags').select('job_id').eq('id', flagIds[0]).single()
+  if (firstFlag?.job_id) {
     try {
       await supabase.from('job_associated_users').upsert({
-        job_id: existingFlag.job_id,
+        job_id: firstFlag.job_id,
         user_id: replacementUserId,
         role: 'helper',
       }, { onConflict: 'job_id,user_id,role' })
@@ -162,20 +165,19 @@ export async function assignReplacement(flagId, replacementUserId) {
     }
   }
 
-  // Fill the flag — the trg_notify_replacement_assigned trigger (SECURITY
-  // DEFINER) notifies the customer + replacement worker server-side.
-  const { data: flag, error } = await supabase
+  // Fill every flag in the range — the trg_notify_replacement_assigned trigger
+  // (SECURITY DEFINER) notifies the customer + replacement worker per flag.
+  const { data: filled, error } = await supabase
     .from('job_replacement_flags')
     .update({
       replacement_user_id: replacementUserId,
       replaced_at: new Date().toISOString(),
     })
-    .eq('id', flagId)
+    .in('id', flagIds)
     .select('*')
-    .single()
   if (error) throw error
 
-  return flag
+  return filled
 }
 
 /** Get open (unfilled) replacement flags for the internal dashboard. */
@@ -197,21 +199,56 @@ export async function getOpenReplacementFlags() {
   const jMap = {}; (jobs || []).forEach(j => { jMap[j.id] = j })
   const uMap = {}; (users || []).forEach(u => { uMap[u.id] = u })
 
-  // Only surface replacements for jobs that are still active/ongoing — a
-  // closed/completed/cancelled job no longer needs a replacement.
+  // Only surface replacements for jobs that are still active/ongoing.
   const CLOSED = ['job_closed', 'payment_confirmed', 'cancelled']
+  const open = flags.filter(f => {
+    const st = jMap[f.job_id]?.status
+    return st && !CLOSED.includes(st)
+  })
 
-  return flags
-    .filter(f => {
-      const st = jMap[f.job_id]?.status
-      return st && !CLOSED.includes(st)
-    })
-    .map(f => ({
-      ...f,
-      job_code: jMap[f.job_id]?.job_id || '—',
-      job_name: jMap[f.job_id]?.job_name || '—',
-      absent_name: uMap[f.absent_user_id]?.user_name || '—',
-    }))
+  // Group by job + absent worker, then collapse CONSECUTIVE dates into ranges.
+  // Each grouped entry carries every underlying flag id so a single "Replace
+  // Worker" action can fill the whole range at once.
+  const byKey = {}
+  for (const f of open) {
+    const key = `${f.job_id}__${f.absent_user_id}`
+    ;(byKey[key] ||= []).push(f)
+  }
+
+  const addDays = (dateStr, n) => {
+    const d = new Date(dateStr + 'T00:00:00'); d.setDate(d.getDate() + n)
+    return d.toISOString().slice(0, 10)
+  }
+
+  const groups = []
+  for (const key of Object.keys(byKey)) {
+    const items = byKey[key].sort((a, b) => a.flag_date.localeCompare(b.flag_date))
+    let run = null
+    for (const f of items) {
+      if (run && f.flag_date === addDays(run.to_date, 1)) {
+        // extends the current consecutive run
+        run.to_date = f.flag_date
+        run.flag_ids.push(f.id)
+      } else {
+        if (run) groups.push(run)
+        run = {
+          job_id: f.job_id,
+          absent_user_id: f.absent_user_id,
+          from_date: f.flag_date,
+          to_date: f.flag_date,
+          flag_ids: [f.id],
+          job_code: jMap[f.job_id]?.job_id || '—',
+          job_name: jMap[f.job_id]?.job_name || '—',
+          absent_name: uMap[f.absent_user_id]?.user_name || '—',
+        }
+      }
+    }
+    if (run) groups.push(run)
+  }
+
+  // Sort by soonest start date
+  groups.sort((a, b) => a.from_date.localeCompare(b.from_date))
+  return groups
 }
 
 /** Get replacement flags for a specific job (for the badge on job views). */
