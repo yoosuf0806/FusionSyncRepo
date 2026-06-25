@@ -12,7 +12,6 @@ import ErrorBanner from '../../components/ErrorBanner'
 import { JOB_STATUS_LABELS } from '../../constants/jobStatuses'
 import { jobDetailPath, jobNewPath } from '../../constants/jobPaths'
 
-const STATUS_FILTERS = ['pending', 'ongoing', 'completed']
 
 const PencilIcon = () => (
   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -33,7 +32,9 @@ export default function ManageJobs() {
   const [jobs, setJobs] = useState([])
   const [flaggedJobIds, setFlaggedJobIds] = useState(new Set())
   const [search, setSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState('')
+  const [typeFilter, setTypeFilter] = useState([])     // job_category values
+  const [statusFilter2, setStatusFilter2] = useState([]) // raw status values
+  const [openFilterCol, setOpenFilterCol] = useState(null) // 'type' | 'status' | null
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [deleteTarget, setDeleteTarget] = useState(null)
@@ -54,7 +55,7 @@ export default function ManageJobs() {
       } else if (isHelpee && dbUser) {
         data = await getJobsForHelpee(dbUser.id)
       } else {
-        data = await getJobs({ search, statusFilter })
+        data = await getJobs({ search })
       }
       setJobs(data)
       // Load open replacement flags to badge affected jobs (internal roles only)
@@ -69,9 +70,19 @@ export default function ManageJobs() {
     } finally {
       setLoading(false)
     }
-  }, [dbUser, isHelper, isHelpee, search, statusFilter])
+  }, [dbUser, isHelper, isHelpee, search])
 
   useEffect(() => { fetchJobs() }, [fetchJobs])
+
+  // Client-side column filtering (works for all roles)
+  const toggleSet = (setter, value) =>
+    setter(prev => prev.includes(value) ? prev.filter(v => v !== value) : [...prev, value])
+
+  const filteredJobs = jobs.filter(job => {
+    if (typeFilter.length && !typeFilter.includes(job.job_category)) return false
+    if (statusFilter2.length && !statusFilter2.includes(job.status)) return false
+    return true
+  })
 
   const handleDelete = async () => {
     if (deleteTarget.status !== 'request_raised') {
@@ -89,7 +100,6 @@ export default function ManageJobs() {
     }
   }
 
-  const toggleFilter = (f) => setStatusFilter(prev => prev === f ? '' : f)
 
   const formatDate = (d) => d ? new Date(d).toLocaleDateString() : '—'
 
@@ -102,18 +112,9 @@ export default function ManageJobs() {
             <SearchInput
               value={search}
               onChange={e => setSearch(e.target.value)}
-              placeholder="Search"
+              placeholder="Search by ID or name"
               className="w-56"
             />
-            {STATUS_FILTERS.map(f => (
-              <button
-                key={f}
-                onClick={() => toggleFilter(f)}
-                className={statusFilter === f ? 'btn-filter-active' : 'btn-filter'}
-              >
-                {f.charAt(0).toUpperCase() + f.slice(1)}
-              </button>
-            ))}
           </div>
         )}
 
@@ -127,17 +128,39 @@ export default function ManageJobs() {
 
         <div className="space-y-2">
           <div className="grid grid-cols-[110px_1fr_130px_140px_110px_110px] gap-2">
-            {['ID', 'Name', 'Type', 'Status', 'Date', 'Action'].map(h => (
-              <div key={h} className="table-header rounded-hh-lg px-2 text-xs">{h}</div>
-            ))}
+            <div className="table-header rounded-hh-lg px-2 text-xs">ID</div>
+            <div className="table-header rounded-hh-lg px-2 text-xs">Name</div>
+            <ColumnFilterHeader
+              label="Type"
+              open={openFilterCol === 'type'}
+              onToggle={() => setOpenFilterCol(openFilterCol === 'type' ? null : 'type')}
+              options={[
+                { value: 'one-time', label: 'One-time' },
+                { value: 'frequent', label: 'Recurring' },
+              ]}
+              selected={typeFilter}
+              onChange={(v) => toggleSet(setTypeFilter, v)}
+              onClear={() => setTypeFilter([])}
+            />
+            <ColumnFilterHeader
+              label="Status"
+              open={openFilterCol === 'status'}
+              onToggle={() => setOpenFilterCol(openFilterCol === 'status' ? null : 'status')}
+              options={Object.entries(JOB_STATUS_LABELS).map(([value, label]) => ({ value, label }))}
+              selected={statusFilter2}
+              onChange={(v) => toggleSet(setStatusFilter2, v)}
+              onClear={() => setStatusFilter2([])}
+            />
+            <div className="table-header rounded-hh-lg px-2 text-xs">Date</div>
+            <div className="table-header rounded-hh-lg px-2 text-xs">Action</div>
           </div>
 
           {loading ? (
             <LoadingSpinner />
-          ) : jobs.length === 0 ? (
+          ) : filteredJobs.length === 0 ? (
             <EmptyState message="No jobs found" />
           ) : (
-            jobs.map(job => (
+            filteredJobs.map(job => (
               <div key={job.id} className="grid grid-cols-[110px_1fr_130px_140px_110px_110px] gap-2">
                 <div
                   className="table-row rounded-hh-lg px-2 text-xs text-hh-green underline cursor-pointer hover:opacity-80"
@@ -161,7 +184,9 @@ export default function ManageJobs() {
                   )}
                 </div>
                 <div className="table-row rounded-hh-lg px-2 text-xs">
-                  {job.job_specifications?.job_type_name || '—'}
+                  {job.job_category === 'frequent' ? 'Recurring'
+                    : job.job_category === 'one-time' ? 'One-time'
+                    : (job.job_specifications?.job_type_name || '—')}
                 </div>
                 <div className="table-row rounded-hh-lg px-2 text-xs capitalize">
                   {JOB_STATUS_LABELS[job.status] || job.status}
@@ -227,5 +252,46 @@ export default function ManageJobs() {
         </div>
       )}
     </MainLayout>
+  )
+}
+
+/* ── Column header with a multi-select filter dropdown ── */
+function ColumnFilterHeader({ label, open, onToggle, options, selected, onChange, onClear }) {
+  const active = selected.length > 0
+  return (
+    <div className="table-header rounded-hh-lg px-2 text-xs relative flex items-center justify-between">
+      <span>{label}</span>
+      <button onClick={onToggle}
+        className={`ml-1 flex items-center justify-center w-5 h-5 rounded ${active ? 'text-hh-green' : 'text-hh-placeholder'}`}
+        title="Filter">
+        <span className="text-[10px]">▼</span>
+        {active && <span className="absolute -top-1 -right-1 w-2 h-2 bg-hh-green rounded-full" />}
+      </button>
+
+      {open && (
+        <>
+          {/* click-away backdrop */}
+          <div className="fixed inset-0 z-40" onClick={onToggle} />
+          <div className="absolute top-full left-0 mt-1 z-50 bg-white rounded-xl shadow-lg border border-gray-100 p-2 min-w-[180px] max-h-64 overflow-y-auto"
+            onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-1 pb-1 mb-1 border-b border-gray-100">
+              <span className="text-[11px] font-semibold text-hh-text">Filter {label}</span>
+              {active && (
+                <button onClick={onClear} className="text-[11px] text-hh-green underline">Clear</button>
+              )}
+            </div>
+            {options.map(opt => (
+              <label key={opt.value}
+                className="flex items-center gap-2 px-1 py-1.5 rounded hover:bg-gray-50 cursor-pointer">
+                <input type="checkbox" checked={selected.includes(opt.value)}
+                  onChange={() => onChange(opt.value)}
+                  className="accent-hh-green" />
+                <span className="text-xs text-hh-text normal-case">{opt.label}</span>
+              </label>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
   )
 }
