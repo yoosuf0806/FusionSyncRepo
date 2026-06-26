@@ -83,6 +83,54 @@ export async function getMyLeaveRequests(userId) {
 }
 
 /**
+ * All APPROVED leave (everyone — workers AND supervisors), for the "On Leave"
+ * view in Manage Attendance. By default returns leave that is current or
+ * upcoming (ends today or later); pass includePast=true for the full history.
+ * Each row is enriched with the person's name, role, and a duration label.
+ */
+export async function getUsersOnLeave({ includePast = false } = {}) {
+  const today = new Date().toISOString().slice(0, 10)
+  let query = supabase
+    .from('leave_requests')
+    .select('*')
+    .eq('status', 'approved')
+    .order('leave_date', { ascending: true })
+
+  // Current or upcoming: the leave's end date is today or later
+  if (!includePast) {
+    query = query.or(`leave_to_date.gte.${today},and(leave_to_date.is.null,leave_date.gte.${today})`)
+  }
+
+  const { data: rows, error } = await query
+  if (error) throw error
+  if (!rows || rows.length === 0) return []
+
+  const ids = [...new Set(rows.map(r => r.requester_id))]
+  const { data: users } = await supabase
+    .from('users').select('id, user_name, user_type').in('id', ids)
+  const uMap = {}
+  ;(users || []).forEach(u => { uMap[u.id] = u })
+
+  const durLabel = { full_day: 'Full Day', first_half: 'Morning (8am–1pm)', second_half: 'Afternoon (1pm–6pm)' }
+
+  return rows.map(r => {
+    const to = r.leave_to_date || r.leave_date
+    const isRange = to && to !== r.leave_date
+    return {
+      ...r,
+      to_date: to,
+      is_range: isRange,
+      person_name: uMap[r.requester_id]?.user_name || '—',
+      person_type: uMap[r.requester_id]?.user_type || null,
+      duration_label: durLabel[r.duration] || r.duration,
+      // "On leave now" if today falls within the range
+      active: today >= r.leave_date && today <= to,
+    }
+  })
+}
+
+
+/**
  * Get leave requests the current viewer can review.
  * Supervisor → helper requests; Admin → all (filtered to supervisors by default
  * in the UI, but service returns all so admin can see everything).

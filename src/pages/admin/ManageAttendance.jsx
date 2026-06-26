@@ -10,7 +10,7 @@ import {
 } from '../../utils/attendanceExport'
 import {
   getLeaveRequestsToReview, reviewLeaveRequest,
-  getOpenReplacementFlags, assignReplacement,
+  getOpenReplacementFlags, assignReplacement, getUsersOnLeave,
 } from '../../services/leaveService'
 
 /* ────────────────────────────────────────────────────────────────────────
@@ -54,6 +54,7 @@ export default function ManageAttendance() {
   const [editing, setEditing] = useState(null)   // row being corrected
   const [leaves, setLeaves] = useState(null)
   const [flags, setFlags] = useState(null)
+  const [onLeave, setOnLeave] = useState(null)
   const [replacing, setReplacing] = useState(null)  // flag being filled
   const [replSearch, setReplSearch] = useState('')
   const [replFrom, setReplFrom] = useState('')
@@ -86,10 +87,18 @@ export default function ManageAttendance() {
       setFlags(data)
     } catch { setFlags([]) }
   }
+  const loadOnLeave = async () => {
+    setOnLeave(null)
+    try {
+      const data = await getUsersOnLeave()
+      setOnLeave(data)
+    } catch { setOnLeave([]) }
+  }
 
   useEffect(() => {
     if (tab === 'leave' && leaves === null) loadLeaves()
     if (tab === 'replacements' && flags === null) loadFlags()
+    if (tab === 'onleave' && onLeave === null) loadOnLeave()
   }, [tab])   // eslint-disable-line
 
   const handleReview = async (leaveId, decision) => {
@@ -124,6 +133,7 @@ export default function ManageAttendance() {
         {[
           { key: 'attendance', label: 'Attendance' },
           { key: 'leave', label: 'Leave Requests' },
+          { key: 'onleave', label: 'On Leave' },
           { key: 'replacements', label: 'Replacements Needed' },
         ].map(t => (
           <button key={t.key} onClick={() => setTab(t.key)}
@@ -267,6 +277,11 @@ export default function ManageAttendance() {
         <LeaveReviewList leaves={leaves} onReview={handleReview} />
       )}
 
+      {/* ── ON LEAVE TAB ── */}
+      {tab === 'onleave' && (
+        <OnLeaveList rows={onLeave} />
+      )}
+
       {/* ── REPLACEMENTS NEEDED TAB ── */}
       {tab === 'replacements' && (
         <>
@@ -357,6 +372,49 @@ function LeaveReviewList({ leaves, onReview }) {
               className="px-4 py-2 text-sm font-medium text-white bg-hh-green rounded-hh hover:opacity-90">
               Approve
             </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/* ── On Leave board — everyone (workers + supervisors) on approved leave ── */
+function OnLeaveList({ rows }) {
+  if (rows === null) {
+    return <div className="flex justify-center py-16">
+      <span className="w-7 h-7 border-2 border-gray-300 border-t-hh-green rounded-full animate-spin" /></div>
+  }
+  if (rows.length === 0) {
+    return <div className="text-center py-16 text-hh-placeholder text-sm">No one is currently on leave.</div>
+  }
+  const dateLabel = (r) => r.is_range ? `${r.leave_date} → ${r.to_date}` : r.leave_date
+  return (
+    <div className="space-y-3">
+      {rows.map(r => (
+        <div key={r.id} className="bg-white rounded-hh shadow-sm p-4 flex items-center justify-between">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-hh-text">{r.person_name}</span>
+              {r.person_type === 'supervisor' && (
+                <span className="text-[10px] bg-purple-100 text-purple-600 px-1.5 py-0.5 rounded">SUPERVISOR</span>
+              )}
+              {r.person_type === 'helper' && (
+                <span className="text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded">WORKER</span>
+              )}
+              {r.active && (
+                <span className="text-[10px] font-bold bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full">
+                  On leave now
+                </span>
+              )}
+            </div>
+            <p className="text-sm text-hh-placeholder mt-0.5">
+              {dateLabel(r)} · {r.duration_label}
+            </p>
+            {r.note && <p className="text-xs text-hh-placeholder mt-1 italic">"{r.note}"</p>}
+          </div>
+          <div className="text-right">
+            <span className="text-xs text-hh-placeholder capitalize">{r.reason}</span>
           </div>
         </div>
       ))}
