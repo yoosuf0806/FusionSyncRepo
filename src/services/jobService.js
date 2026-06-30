@@ -54,16 +54,19 @@ function invoiceToDbPayload(invoiceData) {
   }
 }
 
-export async function getJobs({ search = '', statusFilter = '' } = {}) {
+export async function getJobs({ search = '', statusFilter = '', departmentId = null } = {}) {
   // Removed users join — not needed for list view, and FK hint caused 400 errors
   let query = supabase
     .from('jobs')
     .select(`
       id, job_id, job_name, job_category, job_type_id, status,
       job_date, job_from_date, job_to_date, job_start_time, job_location, job_description,
-      created_at, job_specifications(job_type_name)
+      department_id, created_at, job_specifications(job_type_name)
     `)
     .order('created_at', { ascending: false })
+
+  // Supervisors are scoped to their own department (admins pass no departmentId).
+  if (departmentId) query = query.eq('department_id', departmentId)
 
   if (statusFilter === 'pending') {
     query = query.in('status', ['request_raised', 'manager_assigned', 'helper_assigned'])

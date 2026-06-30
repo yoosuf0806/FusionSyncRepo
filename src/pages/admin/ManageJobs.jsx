@@ -55,7 +55,9 @@ export default function ManageJobs() {
       } else if (isHelpee && dbUser) {
         data = await getJobsForHelpee(dbUser.id)
       } else {
-        data = await getJobs({ search })
+        // Supervisors see only their department's jobs; admins see all.
+        const departmentId = isSupervisor ? (dbUser?.department_id || null) : null
+        data = await getJobs({ search, departmentId })
       }
       setJobs(data)
       // Load open replacement flags to badge affected jobs (internal roles only)
@@ -70,7 +72,7 @@ export default function ManageJobs() {
     } finally {
       setLoading(false)
     }
-  }, [dbUser, isHelper, isHelpee, search])
+  }, [dbUser, isHelper, isHelpee, isSupervisor, search])
 
   useEffect(() => { fetchJobs() }, [fetchJobs])
 
