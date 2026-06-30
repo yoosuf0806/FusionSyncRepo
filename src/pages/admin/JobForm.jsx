@@ -12,6 +12,7 @@ import {
   getJobWorkerStatuses,
 } from '../../services/jobService'
 import { getJobSpecs, getQuestionsForSpec } from '../../services/jobSpecService'
+import { getDepartments } from '../../services/departmentService'
 import { getUsers } from '../../services/userService'
 import FormRow from '../../components/FormRow'
 import LoadingSpinner from '../../components/LoadingSpinner'
@@ -335,6 +336,7 @@ export default function JobForm() {
   const [dbJobId, setDbJobId] = useState(null)
 
   const [specs, setSpecs] = useState([])
+  const [departments, setDepartments] = useState([])
   const [questions, setQuestions] = useState([])
   const [answers, setAnswers] = useState([])
   const [selectedSpec, setSelectedSpec] = useState(null)
@@ -421,6 +423,13 @@ export default function JobForm() {
 
   useEffect(() => {
     getJobSpecs().then(setSpecs).catch(() => {})
+    getDepartments().then(list => {
+      setDepartments(list || [])
+      // For a NEW job created by a supervisor, auto-assign their department.
+      if (!isEdit && isSupervisor && authUser?.department_id) {
+        setForm(prev => prev.department_id ? prev : { ...prev, department_id: authUser.department_id })
+      }
+    }).catch(() => {})
   }, [])
 
   const loadQuestions = useCallback(async (specId) => {
@@ -645,6 +654,7 @@ export default function JobForm() {
 
   const handleSave = async () => {
     if (!form.job_name.trim()) { setError('Job Name is required'); return }
+    if (!form.department_id) { setError('Department is required'); return }
     if (category === JOB_CATEGORIES.ONETIME && !form.job_date) { setError('Job Date is required'); return }
     if (category === JOB_CATEGORIES.FREQUENT && (!form.job_from_date || !form.job_to_date)) { setError('Start and End Date are required'); return }
 
@@ -822,6 +832,23 @@ export default function JobForm() {
                   </select>
                 )}
               </FormRow>
+
+              <FormRow label="Department" labelWidth="w-40">
+                {isJobFieldsReadOnly || isSupervisor ? (
+                  <div className="form-cell flex-1 text-sm">
+                    {departments.find(d => d.id === form.department_id)?.department_name || '—'}
+                  </div>
+                ) : (
+                  <select className={inputClass} value={form.department_id || ''}
+                    onChange={e => setField('department_id', e.target.value)}>
+                    <option value="">-- Select Department --</option>
+                    {departments.map(d => (
+                      <option key={d.id} value={d.id}>{d.department_name}</option>
+                    ))}
+                  </select>
+                )}
+              </FormRow>
+
               <FormRow label="Job Name" labelWidth="w-40">
                 <input className={inputClass} value={form.job_name}
                   onChange={e => setField('job_name', e.target.value)} placeholder="Job Name" readOnly={isJobFieldsReadOnly} />
