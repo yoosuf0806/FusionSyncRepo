@@ -90,13 +90,41 @@ export async function addUserToDepartment(departmentId, userId) {
     .select()
     .single()
   if (error) throw error
+
+  // users.department_id is the single source of truth for "one department per
+  // user" (job/leave scoping reads this column). Keep it in sync so the
+  // Department screen and the User screen always agree.
+  const { error: uErr } = await supabase
+    .from('users')
+    .update({ department_id: departmentId })
+    .eq('id', userId)
+  if (uErr) throw uErr
+
   return data
 }
 
 export async function removeUserFromDepartment(departmentUserId) {
+  // Look up which user/department this join row is for, so we can also clear
+  // the user's department_id column (kept in sync as the source of truth).
+  const { data: row } = await supabase
+    .from('department_users')
+    .select('user_id, department_id')
+    .eq('id', departmentUserId)
+    .maybeSingle()
+
   const { error } = await supabase
     .from('department_users')
     .delete()
     .eq('id', departmentUserId)
   if (error) throw error
+
+  // Only clear users.department_id if it currently points at THIS department
+  // (don't wipe a department the user was since reassigned to).
+  if (row?.user_id && row?.department_id) {
+    await supabase
+      .from('users')
+      .update({ department_id: null })
+      .eq('id', row.user_id)
+      .eq('department_id', row.department_id)
+  }
 }
