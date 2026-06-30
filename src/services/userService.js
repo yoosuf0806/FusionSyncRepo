@@ -25,7 +25,7 @@ const signupClient = createClient(
   { auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false } }
 )
 
-export async function getUsers({ search = '', userType = '' } = {}) {
+export async function getUsers({ search = '', userType = '', departmentId = '' } = {}) {
   let query = supabase
     .from('users')
     .select('id, user_id, user_name, user_type, user_email, user_phone, user_location, department_id, preferred_job_type_id, profile_image_url, is_active, departments(department_name), job_specifications(job_type_name)')
@@ -33,6 +33,7 @@ export async function getUsers({ search = '', userType = '' } = {}) {
     .order('user_id')
 
   if (userType) query = query.eq('user_type', userType)
+  if (departmentId) query = query.eq('department_id', departmentId)
   if (search) {
     query = query.or(
       `user_id.ilike.%${search}%,user_name.ilike.%${search}%,user_email.ilike.%${search}%`

@@ -12,8 +12,6 @@ import LoadingSpinner from '../../components/LoadingSpinner'
 import ErrorBanner from '../../components/ErrorBanner'
 import SearchInput from '../../components/SearchInput'
 
-const CUSTOMER_BASIS = ['One-time', 'Recurring', 'Corporate', 'All']
-const PRICING_STRUCTURE = ['Quotation', 'Hourly', 'Daily basis']
 
 const TrashIcon = () => (
   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -101,7 +99,7 @@ export default function DepartmentForm() {
 
   const [form, setForm] = useState({
     department_name: '', department_location: '', department_address: '',
-    currency: '', customer_basis: '', pricing_structure: '',
+    currency: '',
   })
   const [deptId, setDeptId] = useState('Auto-generated')
   // deptUsers = records already saved in DB (for edit mode)
@@ -123,8 +121,6 @@ export default function DepartmentForm() {
         department_location: dept.department_location || '',
         department_address: dept.department_address || '',
         currency: dept.currency || '',
-        customer_basis: dept.customer_basis || '',
-        pricing_structure: dept.pricing_structure || '',
       })
       setDeptId(dept.department_id || 'Auto-generated')
       setDeptUsers(dept.department_users || [])
@@ -244,20 +240,6 @@ export default function DepartmentForm() {
             <FormRow label="Currency" labelWidth="w-48">
               <input className={inputClass('currency')} value={form.currency}
                 onChange={e => set('currency', e.target.value)} placeholder="e.g. AUD" />
-            </FormRow>
-            <FormRow label="Customer Basis" labelWidth="w-48">
-              <select className={inputClass('customer_basis')} value={form.customer_basis}
-                onChange={e => set('customer_basis', e.target.value)}>
-                <option value="">-- Select --</option>
-                {CUSTOMER_BASIS.map(b => <option key={b} value={b.toLowerCase().replace(' ', '_')}>{b}</option>)}
-              </select>
-            </FormRow>
-            <FormRow label="Pricing Structure" labelWidth="w-48">
-              <select className={inputClass('pricing_structure')} value={form.pricing_structure}
-                onChange={e => set('pricing_structure', e.target.value)}>
-                <option value="">-- Select --</option>
-                {PRICING_STRUCTURE.map(p => <option key={p} value={p.toLowerCase().replace(/\s+/g, '_')}>{p}</option>)}
-              </select>
             </FormRow>
           </div>
         </div>

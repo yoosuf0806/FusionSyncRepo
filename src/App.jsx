@@ -122,7 +122,7 @@ export default function App() {
               SUPERVISOR prefix — supervisor only
           ──────────────────────────────────────────────────────────────*/}
           <Route path="/supervisor/home"
-            element={<RoleRoute allowedRoles={SUPERVISOR_ONLY}><AdminHome /></RoleRoute>} />
+            element={<RoleRoute allowedRoles={SUPERVISOR_ONLY}><Navigate to="/supervisor/my-day" replace /></RoleRoute>} />
 
           <Route path="/supervisor/manage-users"
             element={<RoleRoute allowedRoles={SUPERVISOR_ONLY}><ManageUsers /></RoleRoute>} />

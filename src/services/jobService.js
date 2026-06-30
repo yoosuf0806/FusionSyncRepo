@@ -1042,12 +1042,25 @@ export async function checkWorkerAvailability(workerId, proposed) {
  * worker being replaced and anyone already on the job.
  */
 export async function getAvailableReplacementWorkers(jobId, replacedUserId, fromDate, toDate) {
-  const { data: allHelpers } = await supabase
+  // Match the absent person's role + department: a worker is replaced by a
+  // worker in the same department; a supervisor by a supervisor in the same
+  // department. (Locked: replacement is same-department, role-consistent.)
+  const { data: replacedUser } = await supabase
+    .from('users')
+    .select('user_type, department_id')
+    .eq('id', replacedUserId)
+    .single()
+  const targetType = replacedUser?.user_type === 'supervisor' ? 'supervisor' : 'helper'
+  const deptId = replacedUser?.department_id || null
+
+  let candQuery = supabase
     .from('users')
     .select('id, user_name')
-    .eq('user_type', 'helper')
+    .eq('user_type', targetType)
     .eq('is_active', true)
     .order('user_name')
+  if (deptId) candQuery = candQuery.eq('department_id', deptId)
+  const { data: candidates } = await candQuery
 
   const { data: onJob } = await supabase
     .from('job_associated_users')
@@ -1066,7 +1079,7 @@ export async function getAvailableReplacementWorkers(jobId, replacedUserId, from
   }
 
   const available = []
-  for (const h of allHelpers || []) {
+  for (const h of candidates || []) {
     if (h.id === replacedUserId) continue
     if (onJobIds.has(h.id)) continue
     try {
@@ -1088,9 +1101,14 @@ export async function getAvailableReplacementWorkers(jobId, replacedUserId, from
 export async function createWorkerReplacement({
   jobId, replacedUserId, replacementUserId, fromDate, toDate, reason, createdBy,
 }) {
+  // Record the replacement with the SAME role as the person being covered, so a
+  // supervisor covering a supervisor is added as 'supervisor', not 'helper'.
+  const { data: replacedUser } = await supabase
+    .from('users').select('user_type').eq('id', replacedUserId).single()
+  const role = replacedUser?.user_type === 'supervisor' ? 'supervisor' : 'helper'
   try {
     await supabase.from('job_associated_users').upsert({
-      job_id: jobId, user_id: replacementUserId, role: 'helper',
+      job_id: jobId, user_id: replacementUserId, role,
     }, { onConflict: 'job_id,user_id,role' })
   } catch (e) {
     console.warn('Associating replacement worker failed:', e?.message || e)

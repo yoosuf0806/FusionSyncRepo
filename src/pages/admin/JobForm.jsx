@@ -24,15 +24,18 @@ import { jobsHubPath, jobDetailPath } from '../../constants/jobPaths'
 const ATT_PAGE_SIZE = 10
 
 // ── User Picker Modal ──────────────────────────────────────────────────────
-function UserPickerModal({ roleFilter, onSelect, onClose }) {
+function UserPickerModal({ roleFilter, departmentId, onSelect, onClose }) {
   const [users, setUsers] = useState([])
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
   useEffect(() => {
     setLoading(true)
-    getUsers({ search, userType: roleFilter }).then(data => { setUsers(data); setLoading(false) })
+    // Workers/supervisors are scoped to the job's department; helpees are not
+    // (they aren't department-bound).
+    const deptFilter = (roleFilter === 'helper' || roleFilter === 'supervisor') ? departmentId : ''
+    getUsers({ search, userType: roleFilter, departmentId: deptFilter }).then(data => { setUsers(data); setLoading(false) })
       .catch(() => setLoading(false))
-  }, [search, roleFilter])
+  }, [search, roleFilter, departmentId])
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
       <div className="bg-white rounded-hh-xl shadow-hh-lg w-full max-w-2xl max-h-[80vh] flex flex-col">
@@ -591,6 +594,16 @@ export default function JobForm() {
   const setAnswer = (qId, val) => setAnswers(prev => prev.map(a => a.question_id === qId ? { ...a, answer_text: val } : a))
   const setAttRow = (rowId, key, val) => setAttendance(prev => prev.map(r => r.id === rowId ? { ...r, [key]: val } : r))
 
+  const openHelperPicker = () => {
+    if (!form.department_id) { setError('Select a Department before assigning workers.'); return }
+    if (ONGOING_STATUSES_JF.includes(status)) setShowAddChooser(true)
+    else setUserPickerRole('helper')
+  }
+  const openSupervisorPicker = () => {
+    if (!form.department_id) { setError('Select a Department before assigning a supervisor.'); return }
+    setUserPickerRole('supervisor')
+  }
+
   const handleUserSelected = async (user) => {
     const assocEntry = { role: userPickerRole, users: user }
     if (userPickerRole === 'helpee') {
@@ -819,7 +832,13 @@ export default function JobForm() {
               <FormRow label="Job ID" labelWidth="w-40">
                 <div className="form-cell flex-1 text-sm text-hh-placeholder">{jobId}</div>
               </FormRow>
-              <FormRow label="Job Type" labelWidth="w-40">
+              <FormRow label="Job Schedule" labelWidth="w-40">
+                <div className="form-cell flex-1 text-sm">
+                  {isFrequent ? 'Recurring' : 'One-time'}
+                </div>
+              </FormRow>
+
+              <FormRow label="Service" labelWidth="w-40">
                 {isJobFieldsReadOnly ? (
                   <div className="form-cell flex-1 text-sm">
                     {loadedJobTypeName || selectedSpec?.job_type_name || specs.find(s => s.id === form.job_type_id)?.job_type_name || '—'}
@@ -827,7 +846,7 @@ export default function JobForm() {
                 ) : (
                   <select className={inputClass} value={form.job_type_id}
                     onChange={e => setField('job_type_id', e.target.value)}>
-                    <option value="">-- Select Job Type --</option>
+                    <option value="">-- Select Service --</option>
                     {specs.map(s => <option key={s.id} value={s.id}>{s.job_type_name}</option>)}
                   </select>
                 )}
@@ -1007,9 +1026,7 @@ export default function JobForm() {
                   )}
                   {canManage && (
                     <button
-                      onClick={() => ONGOING_STATUSES_JF.includes(status)
-                        ? setShowAddChooser(true)
-                        : setUserPickerRole('helper')}
+                      onClick={openHelperPicker}
                       className="btn-add w-9 h-9 flex-shrink-0" title="Add Helper">⊕</button>
                   )}
                 </div>
@@ -1052,7 +1069,7 @@ export default function JobForm() {
                   </button>
                 )}
                 {canManage && (
-                  <button onClick={() => setUserPickerRole('supervisor')} className="btn-add w-9 h-9 flex-shrink-0" title="Add Supervisor">⊕</button>
+                  <button onClick={openSupervisorPicker} className="btn-add w-9 h-9 flex-shrink-0" title="Add Supervisor">⊕</button>
                 )}
               </div>
             </div>
@@ -1191,7 +1208,7 @@ export default function JobForm() {
 
       {/* ── MODALS ───────────────────────────────────── */}
       {userPickerRole && (
-        <UserPickerModal roleFilter={userPickerRole} onSelect={handleUserSelected} onClose={() => setUserPickerRole(null)} />
+        <UserPickerModal roleFilter={userPickerRole} departmentId={form.department_id} onSelect={handleUserSelected} onClose={() => setUserPickerRole(null)} />
       )}
 
       {pendingConflict && (

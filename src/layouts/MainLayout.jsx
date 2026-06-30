@@ -53,7 +53,7 @@ export default function MainLayout({ children, title }) {
   const role = isAdmin ? 'admin' : isSupervisor ? 'supervisor' : isHelper ? 'helper' : 'helpee'
 
   const homePath = isAdmin        ? '/admin/home'
-    : isSupervisor  ? '/supervisor/home'
+    : isSupervisor  ? '/supervisor/my-day'
     : isHelper      ? '/helper/my-day'
     : '/helpee/home'
 
