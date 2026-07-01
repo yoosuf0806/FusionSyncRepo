@@ -670,6 +670,9 @@ export default function JobForm() {
     if (!form.department_id) { setError('Department is required'); return }
     if (category === JOB_CATEGORIES.ONETIME && !form.job_date) { setError('Job Date is required'); return }
     if (category === JOB_CATEGORIES.FREQUENT && (!form.job_from_date || !form.job_to_date)) { setError('Start and End Date are required'); return }
+    if (form.job_start_time && form.job_end_time && form.job_end_time <= form.job_start_time) {
+      setError('Job End Time must be after Job Start Time'); return
+    }
 
     // ── Associated-user validation (new jobs only) ─────────────────
     if (!isEdit) {
@@ -899,9 +902,13 @@ export default function JobForm() {
                     <input type="date" className={inputClass} value={form.job_date}
                       onChange={e => setField('job_date', e.target.value)} readOnly={isJobFieldsReadOnly} />
                   </FormRow>
-                  <FormRow label="Job Time" labelWidth="w-40">
+                  <FormRow label="Job Start Time" labelWidth="w-40">
                     <input type="time" className={inputClass} value={form.job_start_time}
                       onChange={e => setField('job_start_time', e.target.value)} readOnly={isJobFieldsReadOnly} />
+                  </FormRow>
+                  <FormRow label="Job End Time" labelWidth="w-40">
+                    <input type="time" className={inputClass} value={form.job_end_time}
+                      onChange={e => setField('job_end_time', e.target.value)} readOnly={isJobFieldsReadOnly} />
                   </FormRow>
                   <FormRow label="Job Location" labelWidth="w-40">
                     <input className={inputClass} value={form.job_location}
