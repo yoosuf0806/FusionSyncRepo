@@ -171,13 +171,13 @@ export default function MyDay() {
         <div className="bg-red-50 text-hh-error text-sm rounded-hh px-3 py-2 mb-4">{error}</div>
       )}
 
-      {jobs === null && (
+      {tab === 'today' && jobs === null && (
         <div className="flex justify-center py-12">
           <span className="w-7 h-7 border-2 border-gray-300 border-t-hh-green rounded-full animate-spin" />
         </div>
       )}
 
-      {jobs !== null && jobs.length === 0 && (
+      {tab === 'today' && jobs !== null && jobs.length === 0 && (
         <div className="text-center py-12 text-hh-placeholder">
           <p className="text-sm">No jobs assigned for today.</p>
         </div>
