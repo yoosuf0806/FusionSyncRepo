@@ -12,13 +12,22 @@
 -- one department_users row, set users.department_id to that department.
 -- (Users with multiple join rows are left alone to avoid guessing — our model is
 --  one department per worker/supervisor, so multi-rows shouldn't normally exist.)
+--
+-- NOTE: department_id is a UUID and Postgres has no MIN(uuid) aggregate, so we
+-- select the single row directly per user (guaranteed one row by HAVING
+-- COUNT = 1) rather than aggregating the uuid.
 -- ════════════════════════════════════════════════════════════════════════
 
-WITH single_dept AS (
-  SELECT user_id, MIN(department_id) AS department_id, COUNT(*) AS n
+WITH counts AS (
+  SELECT user_id
   FROM public.department_users
   GROUP BY user_id
   HAVING COUNT(*) = 1
+),
+single_dept AS (
+  SELECT du.user_id, du.department_id
+  FROM public.department_users du
+  JOIN counts c ON c.user_id = du.user_id
 )
 UPDATE public.users u
 SET department_id = sd.department_id
