@@ -886,6 +886,50 @@ export async function correctAttendanceRecord(rowId, corrections, correctedByUse
 const CLOSED_STATUSES = ['job_closed', 'payment_confirmed', 'cancelled']
 
 /**
+ * Jobs a supervisor should see in their "Unassigned" tab. A job qualifies when
+ * it's in the supervisor's department, is still active (not closed/cancelled),
+ * and is NOT fully staffed — specifically:
+ *   • missing a supervisor  → shown to ALL supervisors in the department
+ *   • has a supervisor but missing a worker → shown ONLY to that supervisor
+ * A job with both a supervisor and a worker (fully staffed) never appears, and
+ * a job assigned to another supervisor (but no worker) does not appear for me.
+ */
+export async function getUnassignedJobsForSupervisor(supervisorUserId, departmentId) {
+  if (!departmentId) return []
+
+  const { data: jobs } = await supabase
+    .from('jobs')
+    .select('id, job_id, job_name, job_category, status, job_date, job_from_date, job_to_date, job_start_time, job_end_time, department_id')
+    .eq('department_id', departmentId)
+    .not('status', 'in', `(${CLOSED_STATUSES.join(',')})`)
+    .order('created_at', { ascending: false })
+
+  if (!jobs || jobs.length === 0) return []
+
+  const jobIds = jobs.map(j => j.id)
+  const { data: assoc } = await supabase
+    .from('job_associated_users')
+    .select('job_id, user_id, role')
+    .in('job_id', jobIds)
+
+  const byJob = {}
+  for (const a of assoc || []) {
+    const e = (byJob[a.job_id] ||= { supervisorId: null, hasWorker: false })
+    if (a.role === 'supervisor') e.supervisorId = a.user_id
+    if (a.role === 'helper') e.hasWorker = true
+  }
+
+  return jobs.filter(j => {
+    const e = byJob[j.id] || { supervisorId: null, hasWorker: false }
+    const hasSupervisor = !!e.supervisorId
+    const hasWorker = e.hasWorker
+    if (hasSupervisor && hasWorker) return false   // fully staffed → hide
+    if (!hasSupervisor) return true                 // no supervisor → all dept sups
+    return e.supervisorId === supervisorUserId       // has sup, no worker → only that sup
+  })
+}
+
+/**
  * Is a job past its scheduled end but still open (not closed)?
  * True when the job's last scheduled date is before today AND its status is
  * not a terminal/closed one. These are the jobs that need an admin to close.

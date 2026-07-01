@@ -4,6 +4,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import MainLayout from '../../layouts/MainLayout'
 import {
   getJobsForCheckin, checkInToJob, checkOutOfJob, getUpcomingJobsForUser,
+  getUnassignedJobsForSupervisor,
 } from '../../services/jobService'
 import { applyForLeave } from '../../services/leaveService'
 
@@ -36,6 +37,7 @@ export default function MyDay() {
   const navigate = useNavigate()
   const [jobs, setJobs] = useState(null)
   const [upcoming, setUpcoming] = useState(null)
+  const [unassigned, setUnassigned] = useState(null)
   const [tab, setTab] = useState('today')
   const [busyJobId, setBusyJobId] = useState(null)
   const [error, setError] = useState('')
@@ -61,6 +63,11 @@ export default function MyDay() {
       getUpcomingJobsForUser(dbUser.id, today)
         .then(setUpcoming)
         .catch(() => setUpcoming([]))
+    }
+    if (tab === 'unassigned' && unassigned === null && dbUser?.id && isSupervisor) {
+      getUnassignedJobsForSupervisor(dbUser.id, dbUser.department_id)
+        .then(setUnassigned)
+        .catch(() => setUnassigned([]))
     }
   }, [tab, upcoming, dbUser?.id])                        // eslint-disable-line
   useEffect(() => {
@@ -151,7 +158,7 @@ export default function MyDay() {
 
       {/* Tabs */}
       <div className="flex gap-6 border-b border-gray-200 mb-5">
-        {['today', 'upcoming'].map(t => (
+        {['today', 'upcoming', ...(isSupervisor ? ['unassigned'] : [])].map(t => (
           <button key={t} onClick={() => setTab(t)}
             className={`pb-2 text-sm font-semibold capitalize transition-colors
               ${tab === t ? 'text-hh-text border-b-2 border-hh-green' : 'text-hh-placeholder'}`}>
@@ -227,6 +234,41 @@ export default function MyDay() {
                   job={job}
                   onOpen={() => navigate(`${jobBasePath}/${job.id}`)}
                 />
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {tab === 'unassigned' && (
+        <>
+          {unassigned === null && (
+            <div className="flex justify-center py-12">
+              <span className="w-7 h-7 border-2 border-gray-300 border-t-hh-green rounded-full animate-spin" />
+            </div>
+          )}
+          {unassigned !== null && unassigned.length === 0 && (
+            <div className="text-center py-12 text-hh-placeholder">
+              <p className="text-sm">Nothing needs assignment right now.</p>
+            </div>
+          )}
+          {unassigned !== null && unassigned.length > 0 && (
+            <div className="space-y-3">
+              {unassigned.map(job => (
+                <button key={job.id}
+                  onClick={() => navigate(`${jobBasePath}/${job.id}`)}
+                  className="w-full text-left bg-white rounded-hh shadow-sm p-4 border-l-4 border-amber-400
+                    hover:shadow-md transition-shadow">
+                  <div className="flex items-center gap-2">
+                    <span className="text-hh-green font-semibold text-sm">{job.job_id}</span>
+                    <span className="font-semibold text-hh-text">{job.job_name}</span>
+                  </div>
+                  <p className="text-xs text-hh-placeholder mt-1">
+                    {job.job_category === 'frequent' ? 'Recurring' : 'One-time'}
+                    {' · '}
+                    Tap to assign
+                  </p>
+                </button>
               ))}
             </div>
           )}
