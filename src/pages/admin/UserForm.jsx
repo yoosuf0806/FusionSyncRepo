@@ -83,7 +83,9 @@ export default function UserForm() {
 if (form.user_email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.user_email)) e.user_email = 'Enter a valid email address'
     if (!isEdit && !form.password) e.password = 'Password is required for new users'
     if (!isEdit && form.password && form.password.length < 6) e.password = 'Password must be at least 6 characters'
-    if (!form.department_id) e.department_id = 'Department is required'
+    if (['helper', 'supervisor'].includes(form.user_type) && !form.department_id) {
+      e.department_id = 'Department is required'
+    }
     return e
   }
 
@@ -110,11 +112,16 @@ if (form.user_email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.user_email
     setSaving(true)
     setApiError('')
     try {
+      // Helpees/admins have no department — send null, not '' (UUID column).
+      const payload = {
+        ...form,
+        department_id: showDepartment ? (form.department_id || null) : null,
+      }
       let savedUserId = id
       if (isEdit) {
-        await updateUser(id, form)
+        await updateUser(id, payload)
       } else {
-        const newUser = await createUser(form, form.password)
+        const newUser = await createUser(payload, form.password)
         savedUserId = newUser.id
       }
       // Save multiple job type associations
@@ -135,6 +142,10 @@ if (form.user_email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.user_email
     `form-cell flex-1 w-full outline-none text-sm ${errors[field] ? 'border border-hh-error' : ''}`
 
   const showJobType = !ADMIN_ONLY_TYPES.includes(form.user_type)
+
+  // Department applies only to workers and supervisors. Helpees aren't tied to
+  // a department (they request jobs in any department); admins aren't either.
+  const showDepartment = ['helper', 'supervisor'].includes(form.user_type)
 
   const allowedTypes = isAdmin ? USER_TYPES : ['helper', 'helpee']
 
@@ -215,7 +226,8 @@ if (form.user_email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.user_email
           />
         </FormRow>
 
-        {/* Department */}
+        {/* Department — workers and supervisors only */}
+        {showDepartment && (
         <FormRow label="Department">
           <select
             className={inputClass('department_id')}
@@ -232,6 +244,7 @@ if (form.user_email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.user_email
             )}
           </select>
         </FormRow>
+        )}
         {errors.department_id && <p className="text-hh-error text-xs ml-52">{errors.department_id}</p>}
 
         {/* Location */}
