@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { Pencil, Trash2, Plus } from 'lucide-react'
 import MainLayout from '../../layouts/MainLayout'
 import { useAuth } from '../../contexts/AuthContext'
 import { userNewPath, userEditPath } from '../../constants/jobPaths'
@@ -9,22 +10,15 @@ import ConfirmModal from '../../components/ConfirmModal'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import EmptyState from '../../components/EmptyState'
 import ErrorBanner from '../../components/ErrorBanner'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Card } from '@/components/ui/card'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
+import { cn } from '@/lib/utils'
 
 const ROLE_FILTERS = ['helpee', 'helper', 'supervisor', 'admin']
-
-const PencilIcon = () => (
-  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-      d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-  </svg>
-)
-
-const TrashIcon = () => (
-  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-  </svg>
-)
+const ROLE_VARIANT = { admin: 'default', supervisor: 'secondary', helper: 'muted', helpee: 'outline' }
 
 export default function ManageUsers() {
   const navigate = useNavigate()
@@ -35,7 +29,7 @@ export default function ManageUsers() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [deleteTarget, setDeleteTarget] = useState(null)
-  const [deleteBlocked, setDeleteBlocked] = useState(null) // { user, activeJobs[] }
+  const [deleteBlocked, setDeleteBlocked] = useState(null)
   const [deleteChecking, setDeleteChecking] = useState(false)
 
   const fetchUsers = useCallback(async () => {
@@ -53,17 +47,13 @@ export default function ManageUsers() {
 
   useEffect(() => { fetchUsers() }, [fetchUsers])
 
-  // Step 1: check active jobs before showing confirm modal
   const handleDeleteClick = async (user) => {
     setDeleteChecking(true)
     setError('')
     try {
       const activeJobs = await checkUserActiveJobs(user.id)
-      if (activeJobs.length > 0) {
-        setDeleteBlocked({ user, activeJobs })
-      } else {
-        setDeleteTarget(user)
-      }
+      if (activeJobs.length > 0) setDeleteBlocked({ user, activeJobs })
+      else setDeleteTarget(user)
     } catch (e) {
       setError(e.message)
     } finally {
@@ -71,7 +61,6 @@ export default function ManageUsers() {
     }
   }
 
-  // Step 2: confirmed — no active jobs, proceed with hard delete
   const handleDelete = async () => {
     try {
       await deleteUser(deleteTarget.id)
@@ -87,119 +76,106 @@ export default function ManageUsers() {
 
   return (
     <MainLayout title="Manage Users">
-      <div className="max-w-4xl mx-auto space-y-4">
+      <div className="space-y-4">
 
-        {/* Filter bar */}
         <div className="flex flex-wrap items-center gap-3">
-          <SearchInput
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Search"
-            className="w-56"
-          />
-          {ROLE_FILTERS.map(r => (
-            <button
-              key={r}
-              onClick={() => toggleRoleFilter(r)}
-              className={roleFilter === r ? 'btn-filter-active' : 'btn-filter'}
-            >
-              {r.charAt(0).toUpperCase() + r.slice(1)}
-            </button>
-          ))}
+          <SearchInput value={search} onChange={e => setSearch(e.target.value)} placeholder="Search users" className="w-full max-w-xs" />
+          <div className="flex flex-wrap gap-2">
+            {ROLE_FILTERS.map(r => (
+              <button
+                key={r}
+                onClick={() => toggleRoleFilter(r)}
+                className={cn(
+                  'rounded-full px-3.5 py-1.5 text-sm font-medium capitalize transition-colors border',
+                  roleFilter === r
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'bg-card text-muted-foreground border-border hover:bg-muted'
+                )}
+              >
+                {r}
+              </button>
+            ))}
+          </div>
+          {isAdmin && (
+            <Button className="ml-auto" onClick={() => navigate(userNewPath(role))}>
+              <Plus className="h-4 w-4" /> New User
+            </Button>
+          )}
         </div>
-
-        {/* Add button */}
-        {isAdmin && (
-          <button
-            onClick={() => navigate(userNewPath(role))}
-            className="btn-add"
-            title="Add User"
-          >
-            ⊕
-          </button>
-        )}
 
         {error && <ErrorBanner message={error} onClose={() => setError('')} />}
 
-        {/* Table */}
-        <div className="space-y-2">
-          {/* Header */}
-          <div className="grid grid-cols-[120px_1fr_150px_120px] gap-2">
-            <div className="table-header rounded-hh-lg px-3">ID</div>
-            <div className="table-header rounded-hh-lg px-3">Name</div>
-            <div className="table-header rounded-hh-lg px-3">Type</div>
-            <div className="table-header rounded-hh-lg px-3">Action</div>
-          </div>
-
+        <Card className="overflow-hidden">
           {loading ? (
             <LoadingSpinner />
           ) : users.length === 0 ? (
             <EmptyState message="No users found" />
           ) : (
-            users.map(u => (
-              <div key={u.id} className="grid grid-cols-[120px_1fr_150px_120px] gap-2">
-                <div className="table-row rounded-hh-lg px-3 text-sm">{u.user_id}</div>
-                <div className="table-row rounded-hh-lg px-3 text-sm">{u.user_name}</div>
-                <div className="table-row rounded-hh-lg px-3 text-sm capitalize">{u.user_type}</div>
-                <div className="table-row rounded-hh-lg px-3 gap-2">
-                  <button
-                    onClick={() => navigate(userEditPath(role, u.id))}
-                    className="btn-icon w-8 h-8"
-                    title="Edit"
-                  >
-                    <PencilIcon />
-                  </button>
-                  {isAdmin && (
-                    <button
-                      onClick={() => handleDeleteClick(u)}
-                      disabled={deleteChecking}
-                      className="btn-icon w-8 h-8 hover:text-hh-error hover:border-hh-error"
-                      title="Delete"
-                    >
-                      <TrashIcon />
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))
+            <Table>
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead className="w-[130px]">ID</TableHead>
+                  <TableHead>Name</TableHead>
+                  <TableHead className="w-[140px]">Type</TableHead>
+                  <TableHead className="w-[110px] text-right">Action</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {users.map(u => (
+                  <TableRow key={u.id} className="cursor-pointer" onClick={() => navigate(userEditPath(role, u.id))}>
+                    <TableCell className="font-medium text-muted-foreground">{u.user_id}</TableCell>
+                    <TableCell className="font-medium text-foreground">{u.user_name}</TableCell>
+                    <TableCell><Badge variant={ROLE_VARIANT[u.user_type] || 'muted'} className="capitalize">{u.user_type}</Badge></TableCell>
+                    <TableCell className="text-right" onClick={e => e.stopPropagation()}>
+                      <div className="flex items-center justify-end gap-1">
+                        <Button variant="ghost" size="icon" className="h-8 w-8" title="Edit" onClick={() => navigate(userEditPath(role, u.id))}>
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        {isAdmin && (
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                            title="Delete" disabled={deleteChecking} onClick={() => handleDeleteClick(u)}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           )}
-        </div>
+        </Card>
 
         {/* Blocked — user still has active jobs */}
-        {deleteBlocked && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-            <div className="bg-white rounded-hh-xl shadow-hh-lg p-6 w-full max-w-md mx-4 space-y-4">
-              <h3 className="font-semibold text-hh-text text-base">Cannot Delete User</h3>
-              <p className="text-sm text-hh-text leading-relaxed">
-                <span className="font-medium">{deleteBlocked.user.user_name}</span> is currently assigned to{' '}
-                {deleteBlocked.activeJobs.length} active job{deleteBlocked.activeJobs.length > 1 ? 's' : ''}.
-                Please remove them from the following jobs before deleting their account:
-              </p>
-              <ul className="space-y-1 max-h-48 overflow-y-auto">
-                {deleteBlocked.activeJobs.map(j => (
-                  <li key={j.id} className="flex items-center gap-2 text-sm bg-gray-50 rounded-hh px-3 py-2">
-                    <span className="font-medium text-hh-green">{j.job_id}</span>
-                    <span className="flex-1 text-hh-text truncate">{j.job_name}</span>
-                    <span className="text-xs text-hh-placeholder capitalize">{j.status.replace(/_/g, ' ')}</span>
-                  </li>
-                ))}
-              </ul>
-              <div className="flex justify-end">
-                <button
-                  onClick={() => setDeleteBlocked(null)}
-                  className="btn-action px-6"
-                >
-                  OK, I understand
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+        <Dialog open={!!deleteBlocked} onOpenChange={(o) => { if (!o) setDeleteBlocked(null) }}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Cannot delete user</DialogTitle>
+              <DialogDescription>
+                <span className="font-medium text-foreground">{deleteBlocked?.user.user_name}</span> is assigned to{' '}
+                {deleteBlocked?.activeJobs.length} active job{deleteBlocked?.activeJobs.length > 1 ? 's' : ''}. Remove them from these jobs first:
+              </DialogDescription>
+            </DialogHeader>
+            <ul className="max-h-56 space-y-1.5 overflow-y-auto">
+              {deleteBlocked?.activeJobs.map(j => (
+                <li key={j.id} className="flex items-center gap-2 rounded-lg bg-muted px-3 py-2 text-sm">
+                  <span className="font-medium text-primary">{j.job_id}</span>
+                  <span className="flex-1 truncate text-foreground">{j.job_name}</span>
+                  <Badge variant="muted" className="capitalize">{j.status.replace(/_/g, ' ')}</Badge>
+                </li>
+              ))}
+            </ul>
+            <DialogFooter>
+              <Button onClick={() => setDeleteBlocked(null)}>OK, I understand</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
-        {/* Confirm delete — only shown when no active jobs */}
         {deleteTarget && (
           <ConfirmModal
-            message={`Permanently delete ${deleteTarget.user_name}? Their completed job history will be preserved, but their account and login will be removed. This cannot be undone.`}
+            title="Delete user?"
+            confirmLabel="Delete"
+            message={`Permanently delete ${deleteTarget.user_name}? Their completed job history is preserved, but their account and login will be removed. This cannot be undone.`}
             onConfirm={handleDelete}
             onCancel={() => setDeleteTarget(null)}
           />

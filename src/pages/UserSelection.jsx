@@ -1,67 +1,47 @@
-// Page 1 — User Selection / Role Selection Portal
+// Legacy role-selection portal (unrouted — unified /login is the live entry).
 import { useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
+import { AlertCircle } from 'lucide-react'
 import AuthLayout from '../layouts/AuthLayout'
 import { useAuth } from '../contexts/AuthContext'
 import { ROLE_HOME_ROUTES } from '../constants/roles'
+import { Button } from '@/components/ui/button'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+
+const ROLES = [
+  { label: 'Helpee', path: '/login/helpee' },
+  { label: 'Helper', path: '/login/helper' },
+  { label: 'Supervisor', path: '/login/supervisor' },
+  { label: 'Admin', path: '/login/admin' },
+]
 
 export default function UserSelection() {
   const navigate = useNavigate()
   const location = useLocation()
   const { session, role, loading } = useAuth()
-
   const sessionExpired = location.state?.sessionExpired === true
 
-  // If already logged in, redirect to role's home
   useEffect(() => {
-    if (!loading && session && role) {
-      navigate(ROLE_HOME_ROUTES[role], { replace: true })
-    }
+    if (!loading && session && role) navigate(ROLE_HOME_ROUTES[role], { replace: true })
   }, [session, role, loading, navigate])
 
   return (
     <AuthLayout>
-      {/* Session expired message */}
-      {sessionExpired && (
-        <div className="bg-red-50 border border-hh-error text-hh-error text-xs rounded-hh px-4 py-2 text-center w-full max-w-[280px]">
-          Your session has expired. Please log in again.
+      <div className="flex flex-col gap-4">
+        {sessionExpired && (
+          <Alert variant="destructive"><AlertCircle className="h-4 w-4" /><AlertDescription>Your session has expired. Please log in again.</AlertDescription></Alert>
+        )}
+        <div className="flex flex-col gap-1">
+          <h2 className="text-xl font-bold tracking-tight text-foreground">Select your role</h2>
+          <p className="text-sm text-muted-foreground">Choose how you'd like to sign in.</p>
         </div>
-      )}
-
-      {/* Prompt text */}
-      <p className="text-white text-base font-medium tracking-wide">
-        Select your user type
-      </p>
-
-      {/* Role buttons */}
-      <div className="flex flex-col gap-4 w-full max-w-[260px]">
-        <button
-          onClick={() => navigate('/login/helpee')}
-          className="btn-login"
-        >
-          Login as Helpee
-        </button>
-
-        <button
-          onClick={() => navigate('/login/helper')}
-          className="btn-login"
-        >
-          Login as Helper
-        </button>
-
-        <button
-          onClick={() => navigate('/login/supervisor')}
-          className="btn-login"
-        >
-          Login as Supervisor
-        </button>
-
-        <button
-          onClick={() => navigate('/login/admin')}
-          className="btn-login"
-        >
-          Login as Admin
-        </button>
+        <div className="flex flex-col gap-3">
+          {ROLES.map(r => (
+            <Button key={r.path} variant="outline" size="lg" className="w-full" onClick={() => navigate(r.path)}>
+              Login as {r.label}
+            </Button>
+          ))}
+        </div>
       </div>
     </AuthLayout>
   )

@@ -1,110 +1,85 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { Plus, Trash2 } from 'lucide-react'
 import MainLayout from '../../layouts/MainLayout'
 import {
   getDepartmentById, createDepartment, updateDepartment,
   addUserToDepartment, removeUserFromDepartment,
 } from '../../services/departmentService'
 import { getUsers } from '../../services/userService'
-import FormRow from '../../components/FormRow'
 import ConfirmModal from '../../components/ConfirmModal'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import ErrorBanner from '../../components/ErrorBanner'
 import SearchInput from '../../components/SearchInput'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Badge } from '@/components/ui/badge'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { cn } from '@/lib/utils'
 
-
-const TrashIcon = () => (
-  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-  </svg>
-)
-
-/* ── Inline User Picker Modal ─────────────────────────────────── */
-function UserPickerModal({ onSelect, onClose, excludeIds = [] }) {
+function UserPickerModal({ open, onSelect, onClose, excludeIds = [] }) {
   const [users, setUsers] = useState([])
   const [search, setSearch] = useState('')
   const [roleFilter, setRoleFilter] = useState('')
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    getUsers({ search, userType: roleFilter }).then(data => {
-      setUsers(data || [])
-      setLoading(false)
-    }).catch(() => setLoading(false))
-  }, [search, roleFilter])
+    if (!open) return
+    getUsers({ search, userType: roleFilter }).then(data => { setUsers(data || []); setLoading(false) }).catch(() => setLoading(false))
+  }, [search, roleFilter, open])
 
   const roles = ['helper', 'helpee', 'supervisor']
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-hh-lg shadow-xl w-full max-w-2xl max-h-[80vh] flex flex-col">
-        <div className="flex items-center justify-between p-4 border-b">
-          <h3 className="font-semibold text-base">Select User</h3>
-          <button onClick={onClose} className="text-hh-placeholder hover:text-hh-text text-xl">✕</button>
-        </div>
-
-        <div className="p-4 flex gap-2 flex-wrap">
-          <SearchInput
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Search by name or ID"
-            className="flex-1 min-w-[200px]"
-          />
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose() }}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader><DialogTitle>Select user</DialogTitle></DialogHeader>
+        <div className="flex flex-wrap gap-2">
+          <SearchInput value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by name or ID" className="min-w-[200px] flex-1" />
           {roles.map(r => (
             <button key={r} onClick={() => setRoleFilter(prev => prev === r ? '' : r)}
-              className={`px-3 py-1.5 rounded-full text-xs font-medium capitalize transition-colors
-                ${roleFilter === r ? 'bg-hh-green text-white' : 'bg-white border border-gray-200 text-hh-text hover:bg-gray-50'}`}>
+              className={cn('rounded-full px-3 py-1.5 text-xs font-medium capitalize transition-colors border',
+                roleFilter === r ? 'bg-primary text-primary-foreground border-primary' : 'bg-card border-border text-muted-foreground hover:bg-muted')}>
               {r}
             </button>
           ))}
         </div>
-
-        <div className="overflow-y-auto flex-1 px-4 pb-4 space-y-1">
+        <div className="max-h-[50vh] space-y-1.5 overflow-y-auto pr-1">
           {loading ? (
-            <p className="text-center text-sm text-hh-placeholder py-8">Loading...</p>
+            <p className="py-8 text-center text-sm text-muted-foreground">Loading…</p>
           ) : users.length === 0 ? (
-            <p className="text-center text-sm text-hh-placeholder py-8">No users found</p>
+            <p className="py-8 text-center text-sm text-muted-foreground">No users found</p>
           ) : users.map(u => {
             const excluded = excludeIds.includes(u.id)
             return (
-              <div key={u.id}
-                className={`flex items-center justify-between p-3 rounded-hh border gap-3
-                  ${excluded ? 'opacity-40 bg-gray-50' : 'bg-white hover:bg-green-50 cursor-pointer'}`}>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">{u.user_name}</p>
-                  <p className="text-xs text-hh-placeholder">{u.user_id} · <span className="capitalize">{u.user_type}</span></p>
+              <div key={u.id} className={cn('flex items-center justify-between gap-3 rounded-lg border border-border p-3', excluded ? 'opacity-50' : 'hover:bg-muted')}>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-foreground">{u.user_name}</p>
+                  <p className="text-xs text-muted-foreground">{u.user_id} · <span className="capitalize">{u.user_type}</span></p>
                 </div>
-                <button
-                  disabled={excluded}
-                  onClick={() => !excluded && onSelect(u)}
-                  className={`btn-select text-xs px-4 py-1.5 flex-shrink-0 ${excluded ? 'opacity-50 cursor-not-allowed' : ''}`}
-                >
+                <Button variant={excluded ? 'ghost' : 'outline'} size="sm" disabled={excluded} onClick={() => !excluded && onSelect(u)}>
                   {excluded ? 'Added' : 'Select'}
-                </button>
+                </Button>
               </div>
             )
           })}
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 
-/* ── Main DepartmentForm ─────────────────────────────────────── */
 export default function DepartmentForm() {
   const navigate = useNavigate()
   const { id } = useParams()
   const isEdit = Boolean(id)
 
-  const [form, setForm] = useState({
-    department_name: '', department_location: '', department_address: '',
-    currency: '',
-  })
+  const [form, setForm] = useState({ department_name: '', department_location: '', department_address: '', currency: '' })
   const [deptId, setDeptId] = useState('Auto-generated')
-  // deptUsers = records already saved in DB (for edit mode)
   const [deptUsers, setDeptUsers] = useState([])
-  // pendingUsers = users selected but not yet saved (for create mode)
   const [pendingUsers, setPendingUsers] = useState([])
   const [loading, setLoading] = useState(isEdit)
   const [saving, setSaving] = useState(false)
@@ -135,50 +110,36 @@ export default function DepartmentForm() {
 
   const validate = () => {
     const e = {}
-    if (!form.department_name.trim()) e.department_name = 'Department Name is required'
+    if (!form.department_name.trim()) e.department_name = 'Department name is required'
     if (!form.department_location.trim()) e.department_location = 'Location is required'
     if (!form.department_address.trim()) e.department_address = 'Address is required'
     return e
   }
 
-  // IDs of all users already in the dept (DB + pending) — used to disable in picker
-  const allUserIds = [
-    ...deptUsers.map(du => du.user_id),
-    ...pendingUsers.map(u => u.id),
-  ]
+  const allUserIds = [...deptUsers.map(du => du.user_id), ...pendingUsers.map(u => u.id)]
 
   const handleSelectUser = async (user) => {
     setShowUserPicker(false)
     setApiError('')
-
     if (isEdit) {
-      // Edit mode — add to DB immediately, then refresh list
       try {
         await addUserToDepartment(id, user.id)
         const dept = await getDepartmentById(id)
         setDeptUsers(dept.department_users || [])
-      } catch (e) {
-        setApiError(e.message)
-      }
+      } catch (e) { setApiError(e.message) }
     } else {
-      // Create mode — add to pending list (saved after dept is created)
       setPendingUsers(prev => [...prev, user])
     }
   }
 
-  const handleRemovePending = (userId) => {
-    setPendingUsers(prev => prev.filter(u => u.id !== userId))
-  }
+  const handleRemovePending = (userId) => setPendingUsers(prev => prev.filter(u => u.id !== userId))
 
   const handleRemoveSaved = async () => {
     try {
       await removeUserFromDepartment(removeTarget.id)
       setDeptUsers(prev => prev.filter(u => u.id !== removeTarget.id))
       setRemoveTarget(null)
-    } catch (e) {
-      setApiError(e.message)
-      setRemoveTarget(null)
-    }
+    } catch (e) { setApiError(e.message); setRemoveTarget(null) }
   }
 
   const handleSave = async () => {
@@ -191,142 +152,110 @@ export default function DepartmentForm() {
         await updateDepartment(id, form)
       } else {
         const newDept = await createDepartment(form)
-        // Now add all pending users to the newly created department
-        for (const user of pendingUsers) {
-          await addUserToDepartment(newDept.id, user.id).catch(() => {})
-        }
+        for (const user of pendingUsers) await addUserToDepartment(newDept.id, user.id).catch(() => {})
         setPendingUsers([])
       }
       navigate('/admin/departments')
-    } catch (err) {
-      setApiError(err.message)
-    } finally {
-      setSaving(false)
-    }
+    } catch (err) { setApiError(err.message) } finally { setSaving(false) }
   }
 
-  const inputClass = (field) =>
-    `form-cell flex-1 w-full outline-none text-sm ${errors[field] ? 'border border-hh-error' : ''}`
+  const errClass = (field) => errors[field] ? 'border-destructive focus-visible:ring-destructive/30' : ''
 
   if (loading) return <MainLayout title="Department"><LoadingSpinner /></MainLayout>
 
+  const rows = isEdit
+    ? deptUsers.map(du => ({ key: du.id, uid: du.users?.user_id, name: du.users?.user_name, type: du.users?.user_type, onRemove: () => setRemoveTarget(du) }))
+    : pendingUsers.map(u => ({ key: u.id, uid: u.user_id, name: u.user_name, type: u.user_type, onRemove: () => handleRemovePending(u.id) }))
+
   return (
-    <MainLayout title="Department">
-      <div className="max-w-2xl mx-auto space-y-6">
+    <MainLayout title={isEdit ? 'Edit Department' : 'New Department'}>
+      <div className="mx-auto max-w-2xl space-y-6">
         {apiError && <ErrorBanner message={apiError} onClose={() => setApiError('')} />}
 
-        {/* Department Details */}
-        <div>
-          <h2 className="text-base font-semibold mb-3">Department Details</h2>
-          <div className="space-y-2">
-            <FormRow label="Department ID" labelWidth="w-48">
-              <div className="form-cell flex-1 text-sm text-hh-placeholder">{deptId}</div>
-            </FormRow>
-            <FormRow label="Department Name" labelWidth="w-48">
-              <input className={inputClass('department_name')} value={form.department_name}
-                onChange={e => set('department_name', e.target.value)} placeholder="Department Name" />
-            </FormRow>
-            {errors.department_name && <p className="text-hh-error text-xs">{errors.department_name}</p>}
-            <FormRow label="Location" labelWidth="w-48">
-              <input className={inputClass('department_location')} value={form.department_location}
-                onChange={e => set('department_location', e.target.value)} placeholder="City / Location" />
-            </FormRow>
-            {errors.department_location && <p className="text-hh-error text-xs">{errors.department_location}</p>}
-            <FormRow label="Address" labelWidth="w-48">
-              <input className={inputClass('department_address')} value={form.department_address}
-                onChange={e => set('department_address', e.target.value)} placeholder="Full Address" />
-            </FormRow>
-            {errors.department_address && <p className="text-hh-error text-xs">{errors.department_address}</p>}
-            <FormRow label="Currency" labelWidth="w-48">
-              <input className={inputClass('currency')} value={form.currency}
-                onChange={e => set('currency', e.target.value)} placeholder="e.g. AUD" />
-            </FormRow>
-          </div>
-        </div>
+        <Card>
+          <CardHeader><CardTitle>Department details</CardTitle></CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-col gap-1.5">
+              <Label>Department ID</Label>
+              <Input value={deptId} disabled />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="dname">Department name</Label>
+              <Input id="dname" value={form.department_name} onChange={e => set('department_name', e.target.value)} placeholder="Department name" className={errClass('department_name')} />
+              {errors.department_name && <p className="text-xs text-destructive">{errors.department_name}</p>}
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="dloc">Location</Label>
+              <Input id="dloc" value={form.department_location} onChange={e => set('department_location', e.target.value)} placeholder="City / location" className={errClass('department_location')} />
+              {errors.department_location && <p className="text-xs text-destructive">{errors.department_location}</p>}
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="daddr">Address</Label>
+              <Input id="daddr" value={form.department_address} onChange={e => set('department_address', e.target.value)} placeholder="Full address" className={errClass('department_address')} />
+              {errors.department_address && <p className="text-xs text-destructive">{errors.department_address}</p>}
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="dcur">Currency</Label>
+              <Input id="dcur" value={form.currency} onChange={e => set('currency', e.target.value)} placeholder="e.g. LKR" />
+            </div>
+          </CardContent>
+        </Card>
 
-        {/* Department Users */}
-        <div>
-          <h2 className="text-base font-semibold mb-3">Department Users</h2>
-          <button onClick={() => setShowUserPicker(true)} className="btn-add mb-3" title="Add User">⊕</button>
-
-          {/* Users already saved to DB (edit mode) */}
-          {deptUsers.length > 0 && (
-            <div className="space-y-2 mb-2">
-              <div className="grid grid-cols-[110px_1fr_130px_80px] gap-2">
-                {['ID', 'Name', 'Type', 'Action'].map(h => (
-                  <div key={h} className="table-header rounded-hh-lg px-2 text-xs">{h}</div>
-                ))}
+        <Card>
+          <CardHeader className="flex-row items-center justify-between space-y-0">
+            <CardTitle>Department users</CardTitle>
+            <Button variant="outline" size="sm" onClick={() => setShowUserPicker(true)}><Plus className="h-4 w-4" /> Add user</Button>
+          </CardHeader>
+          <CardContent>
+            {rows.length === 0 ? (
+              <p className="py-4 text-sm text-muted-foreground">No users added yet.</p>
+            ) : (
+              <div className="overflow-hidden rounded-lg border border-border">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="hover:bg-transparent">
+                      <TableHead className="w-[110px]">ID</TableHead>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead className="w-[70px] text-right">Action</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {rows.map(r => (
+                      <TableRow key={r.key}>
+                        <TableCell className="text-muted-foreground">{r.uid || '—'}</TableCell>
+                        <TableCell className="font-medium text-foreground">{r.name || '—'}</TableCell>
+                        <TableCell><Badge variant="muted" className="capitalize">{r.type || '—'}</Badge></TableCell>
+                        <TableCell className="text-right">
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" title="Remove" onClick={r.onRemove}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
               </div>
-              {deptUsers.map(du => (
-                <div key={du.id} className="grid grid-cols-[110px_1fr_130px_80px] gap-2 items-center">
-                  <div className="table-row rounded-hh-lg px-2 text-xs">{du.users?.user_id || '—'}</div>
-                  <div className="table-row rounded-hh-lg px-2 text-xs">{du.users?.user_name || '—'}</div>
-                  <div className="table-row rounded-hh-lg px-2 text-xs capitalize">{du.users?.user_type || '—'}</div>
-                  <div className="table-row rounded-hh-lg px-2 gap-1">
-                    <button onClick={() => setRemoveTarget(du)} className="btn-icon w-8 h-8 hover:text-hh-error" title="Remove">
-                      <TrashIcon />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+            )}
+          </CardContent>
+        </Card>
 
-          {/* Pending users (create mode — not yet in DB) */}
-          {pendingUsers.length > 0 && (
-            <div className="space-y-2">
-              {deptUsers.length === 0 && (
-                <div className="grid grid-cols-[110px_1fr_130px_80px] gap-2">
-                  {['ID', 'Name', 'Type', 'Action'].map(h => (
-                    <div key={h} className="table-header rounded-hh-lg px-2 text-xs">{h}</div>
-                  ))}
-                </div>
-              )}
-              {pendingUsers.map(u => (
-                <div key={u.id} className="grid grid-cols-[110px_1fr_130px_80px] gap-2 items-center">
-                  <div className="table-row rounded-hh-lg px-2 text-xs">{u.user_id || '—'}</div>
-                  <div className="table-row rounded-hh-lg px-2 text-xs">{u.user_name}</div>
-                  <div className="table-row rounded-hh-lg px-2 text-xs capitalize">{u.user_type}</div>
-                  <div className="table-row rounded-hh-lg px-2 gap-1">
-                    <button onClick={() => handleRemovePending(u.id)} className="btn-icon w-8 h-8 hover:text-hh-error" title="Remove">
-                      <TrashIcon />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {deptUsers.length === 0 && pendingUsers.length === 0 && (
-            <p className="text-sm text-hh-placeholder">No users added yet. Click ⊕ to add users.</p>
-          )}
-        </div>
-
-        {/* Actions */}
         <div className="flex gap-3">
-          <button onClick={handleSave} disabled={saving} className="btn-action px-8">
-            {saving ? 'Saving...' : 'Save'}
-          </button>
-          <button onClick={() => navigate('/admin/departments')} className="btn-filter">Cancel</button>
+          <Button onClick={handleSave} disabled={saving} className="px-8">{saving ? 'Saving…' : 'Save'}</Button>
+          <Button variant="outline" onClick={() => navigate('/admin/departments')}>Cancel</Button>
         </div>
 
-        {/* Confirm remove saved user */}
         {removeTarget && (
           <ConfirmModal
+            title="Remove user?"
+            confirmLabel="Remove"
             message={`Remove ${removeTarget.users?.user_name} from this department?`}
             onConfirm={handleRemoveSaved}
             onCancel={() => setRemoveTarget(null)}
           />
         )}
 
-        {/* Inline User Picker Modal */}
-        {showUserPicker && (
-          <UserPickerModal
-            onSelect={handleSelectUser}
-            onClose={() => setShowUserPicker(false)}
-            excludeIds={allUserIds}
-          />
-        )}
+        <UserPickerModal open={showUserPicker} onSelect={handleSelectUser} onClose={() => setShowUserPicker(false)} excludeIds={allUserIds} />
       </div>
     </MainLayout>
   )

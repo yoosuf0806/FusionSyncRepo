@@ -1,115 +1,161 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
+  :root {
+    --background: 150 30% 98%;
+    --foreground: 222 22% 18%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 22% 18%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 22% 18%;
+
+    --primary: 142 58% 33%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 150 16% 95%;
+    --secondary-foreground: 222 22% 22%;
+
+    --muted: 150 16% 95%;
+    --muted-foreground: 220 9% 46%;
+
+    --accent: 142 40% 93%;
+    --accent-foreground: 142 55% 22%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 142 58% 33%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 48%;
+    --warning-foreground: 0 0% 100%;
+
+    --border: 150 12% 90%;
+    --input: 150 14% 88%;
+    --ring: 142 58% 33%;
+
+    --radius: 0.75rem;
+  }
+
   * {
+    @apply border-border;
     box-sizing: border-box;
   }
+
+  html { -webkit-tap-highlight-color: transparent; }
+
   body {
-    @apply bg-hh-mint text-hh-text font-sans;
+    @apply bg-background text-foreground font-sans antialiased;
     margin: 0;
     padding: 0;
+    font-feature-settings: "cv11", "ss01";
   }
+
+  ::selection { @apply bg-primary/20; }
 }
 
 @layer components {
   /* Page Background */
   .page-bg {
-    @apply bg-hh-mint min-h-screen;
+    @apply bg-background min-h-screen;
   }
 
   /* White card/cell base */
   .hh-card {
-    @apply bg-white rounded-hh-lg shadow-hh;
+    @apply bg-card rounded-xl border border-border shadow-card;
   }
 
-  /* Green action button */
+  /* Primary action button */
   .btn-action {
-    @apply bg-hh-green text-hh-text font-medium rounded-hh px-4 min-h-btn
-           flex items-center justify-center cursor-pointer
-           hover:bg-green-600 transition-colors duration-150;
+    @apply bg-primary text-primary-foreground font-semibold rounded-lg px-4 min-h-btn
+           inline-flex items-center justify-center gap-2 cursor-pointer text-sm
+           shadow-sm hover:bg-primary/90 active:scale-[0.98]
+           transition-all duration-150 disabled:opacity-50 disabled:pointer-events-none;
   }
 
-  /* Light green login button */
+  /* Full-width primary button (login) */
   .btn-login {
-    @apply bg-hh-green-light text-hh-text font-medium rounded-pill px-6 min-h-btn
-           w-full flex items-center justify-center cursor-pointer
-           hover:bg-green-300 transition-colors duration-150;
+    @apply bg-primary text-primary-foreground font-semibold rounded-lg px-6 min-h-btn
+           w-full inline-flex items-center justify-center gap-2 cursor-pointer
+           shadow-sm hover:bg-primary/90 active:scale-[0.99]
+           transition-all duration-150 disabled:opacity-60 disabled:pointer-events-none;
   }
 
-  /* Select pill */
+  /* Select / secondary pill */
   .btn-select {
-    @apply bg-hh-green-med text-hh-text font-medium rounded-pill px-4
-           flex items-center justify-center cursor-pointer
-           hover:bg-green-500 transition-colors duration-150;
-    height: 38px;
+    @apply bg-secondary text-secondary-foreground font-medium rounded-full px-4 h-9
+           inline-flex items-center justify-center cursor-pointer text-sm
+           border border-border hover:bg-accent transition-colors duration-150;
   }
 
   /* Filter button inactive */
   .btn-filter {
-    @apply bg-white text-hh-text font-medium rounded-hh px-4 min-h-btn shadow-hh
-           flex items-center justify-center cursor-pointer
-           hover:bg-gray-50 transition-colors duration-150;
+    @apply bg-card text-foreground font-medium rounded-lg px-4 min-h-btn border border-border
+           inline-flex items-center justify-center cursor-pointer text-sm
+           hover:bg-muted transition-colors duration-150;
   }
 
   /* Filter button active */
   .btn-filter-active {
-    @apply bg-hh-green-med text-hh-text font-medium rounded-hh px-4 min-h-btn shadow-hh
-           flex items-center justify-center cursor-pointer;
+    @apply bg-primary text-primary-foreground font-semibold rounded-lg px-4 min-h-btn
+           inline-flex items-center justify-center cursor-pointer text-sm shadow-sm;
   }
 
-  /* Page title pill */
+  /* Page title */
   .page-title-bar {
-    @apply bg-white rounded-pill shadow-hh px-8 min-h-btn
-           flex items-center justify-center text-hh-text font-medium text-base;
+    @apply text-foreground font-semibold text-lg tracking-tight
+           inline-flex items-center justify-center;
   }
 
-  /* Icon button (edit / delete / notification / profile) */
+  /* Icon button */
   .btn-icon {
-    @apply bg-white rounded-hh shadow-hh w-11 h-11
-           flex items-center justify-center cursor-pointer
-           hover:bg-gray-50 transition-colors duration-150;
+    @apply bg-card rounded-lg border border-border w-10 h-10 text-muted-foreground
+           inline-flex items-center justify-center cursor-pointer
+           hover:bg-muted hover:text-foreground transition-colors duration-150;
   }
 
   /* Add (⊕) button */
   .btn-add {
-    @apply bg-white rounded-full shadow-hh w-11 h-11 border-2 border-hh-text
-           flex items-center justify-center cursor-pointer text-xl font-bold
-           hover:bg-gray-50 transition-colors duration-150;
+    @apply bg-primary text-primary-foreground rounded-full w-11 h-11
+           inline-flex items-center justify-center cursor-pointer text-xl font-bold
+           shadow-sm hover:bg-primary/90 active:scale-95 transition-all duration-150;
   }
 
-  /* Form input row cell */
+  /* Form input cell */
   .form-cell {
-    @apply bg-white rounded-hh shadow-hh px-3 flex items-center;
-    height: 44px;
+    @apply bg-card rounded-lg border border-input px-3 flex items-center
+           focus-within:ring-2 focus-within:ring-ring/40 focus-within:border-ring transition;
+    min-height: 44px;
   }
 
   /* Form label cell */
   .form-label {
-    @apply bg-white rounded-hh shadow-hh px-3 flex items-center justify-center
-           text-hh-text text-sm font-medium;
-    height: 44px;
+    @apply text-muted-foreground text-sm font-medium flex items-center;
+    min-height: 44px;
   }
 
   /* Table row */
   .table-row {
-    @apply bg-white rounded-hh shadow-hh flex items-center;
+    @apply bg-card rounded-lg border border-border flex items-center hover:bg-muted/50 transition-colors;
     min-height: 48px;
   }
 
   /* Table header cell */
   .table-header {
-    @apply bg-white rounded-hh shadow-hh flex items-center justify-center
-           text-hh-text font-semibold text-sm;
-    height: 50px;
+    @apply text-muted-foreground font-semibold text-xs uppercase tracking-wide flex items-center;
+    min-height: 40px;
   }
 
   /* Search input */
   .search-input {
-    @apply bg-white rounded-hh shadow-hh px-4 flex items-center gap-2;
-    height: 44px;
+    @apply bg-card rounded-lg border border-input px-4 flex items-center gap-2
+           focus-within:ring-2 focus-within:ring-ring/40 focus-within:border-ring transition;
+    min-height: 44px;
   }
 }

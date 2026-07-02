@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { Pencil, Trash2, Plus, ListFilter, AlertTriangle, CalendarClock } from 'lucide-react'
 import MainLayout from '../../layouts/MainLayout'
 import { useAuth } from '../../contexts/AuthContext'
 import { getJobs, getJobsForUser, getJobsForHelpee, deleteJob, isJobExpired } from '../../services/jobService'
@@ -9,22 +10,23 @@ import ConfirmModal from '../../components/ConfirmModal'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import EmptyState from '../../components/EmptyState'
 import ErrorBanner from '../../components/ErrorBanner'
-import { JOB_STATUS_LABELS } from '../../constants/jobStatuses'
+import { JOB_STATUS_LABELS, JOB_STATUS_FILTERS } from '../../constants/jobStatuses'
 import { jobDetailPath, jobNewPath } from '../../constants/jobPaths'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Card } from '@/components/ui/card'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { cn } from '@/lib/utils'
 
-
-const PencilIcon = () => (
-  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-      d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-  </svg>
-)
-const TrashIcon = () => (
-  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-  </svg>
-)
+function statusVariant(status) {
+  if (JOB_STATUS_FILTERS.COMPLETED.includes(status)) return 'success'
+  if (JOB_STATUS_FILTERS.ONGOING.includes(status)) return 'warning'
+  return 'muted'
+}
 
 export default function ManageJobs() {
   const navigate = useNavigate()
@@ -32,15 +34,13 @@ export default function ManageJobs() {
   const [jobs, setJobs] = useState([])
   const [flaggedJobIds, setFlaggedJobIds] = useState(new Set())
   const [search, setSearch] = useState('')
-  const [typeFilter, setTypeFilter] = useState([])     // job_category values
-  const [statusFilter2, setStatusFilter2] = useState([]) // raw status values
-  const [openFilterCol, setOpenFilterCol] = useState(null) // 'type' | 'status' | null
+  const [typeFilter, setTypeFilter] = useState([])
+  const [statusFilter2, setStatusFilter2] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [showTypeModal, setShowTypeModal] = useState(false)
 
-  // authUser from context IS the DB user record
   const dbUser = authUser
   const canManage = isAdmin || isSupervisor
 
@@ -55,12 +55,10 @@ export default function ManageJobs() {
       } else if (isHelpee && dbUser) {
         data = await getJobsForHelpee(dbUser.id)
       } else {
-        // Supervisors see only their department's jobs; admins see all.
         const departmentId = isSupervisor ? (dbUser?.department_id || null) : null
         data = await getJobs({ search, departmentId })
       }
       setJobs(data)
-      // Load open replacement flags to badge affected jobs (internal roles only)
       if (!isHelper && !isHelpee) {
         try {
           const openFlags = await getOpenReplacementFlags()
@@ -76,7 +74,6 @@ export default function ManageJobs() {
 
   useEffect(() => { fetchJobs() }, [fetchJobs])
 
-  // Client-side column filtering (works for all roles)
   const toggleSet = (setter, value) =>
     setter(prev => prev.includes(value) ? prev.filter(v => v !== value) : [...prev, value])
 
@@ -102,198 +99,165 @@ export default function ManageJobs() {
     }
   }
 
-
   const formatDate = (d) => d ? new Date(d).toLocaleDateString() : '—'
 
   return (
     <MainLayout title="Manage Jobs">
-      <div className="max-w-5xl mx-auto space-y-4">
+      <div className="space-y-4">
 
-        {canManage && (
-          <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          {canManage && (
             <SearchInput
               value={search}
               onChange={e => setSearch(e.target.value)}
               placeholder="Search by ID or name"
-              className="w-56"
+              className="w-full max-w-xs"
             />
-          </div>
-        )}
-
-        {(canManage || isHelpee) && (
-          <button onClick={() => setShowTypeModal(true)} className="btn-add" title="Add Job">
-            ⊕
-          </button>
-        )}
+          )}
+          {(canManage || isHelpee) && (
+            <Button onClick={() => setShowTypeModal(true)} className="ml-auto">
+              <Plus className="h-4 w-4" /> New Job
+            </Button>
+          )}
+        </div>
 
         {error && <ErrorBanner message={error} onClose={() => setError('')} />}
 
-        <div className="space-y-2">
-          <div className="grid grid-cols-[110px_1fr_130px_140px_110px_110px] gap-2">
-            <div className="table-header rounded-hh-lg px-2 text-xs">ID</div>
-            <div className="table-header rounded-hh-lg px-2 text-xs">Name</div>
-            <ColumnFilterHeader
-              label="Type"
-              open={openFilterCol === 'type'}
-              onToggle={() => setOpenFilterCol(openFilterCol === 'type' ? null : 'type')}
-              options={[
-                { value: 'one-time', label: 'One-time' },
-                { value: 'frequent', label: 'Recurring' },
-              ]}
-              selected={typeFilter}
-              onChange={(v) => toggleSet(setTypeFilter, v)}
-              onClear={() => setTypeFilter([])}
-            />
-            <ColumnFilterHeader
-              label="Status"
-              open={openFilterCol === 'status'}
-              onToggle={() => setOpenFilterCol(openFilterCol === 'status' ? null : 'status')}
-              options={Object.entries(JOB_STATUS_LABELS).map(([value, label]) => ({ value, label }))}
-              selected={statusFilter2}
-              onChange={(v) => toggleSet(setStatusFilter2, v)}
-              onClear={() => setStatusFilter2([])}
-            />
-            <div className="table-header rounded-hh-lg px-2 text-xs">Date</div>
-            <div className="table-header rounded-hh-lg px-2 text-xs">Action</div>
-          </div>
-
+        <Card className="overflow-hidden">
           {loading ? (
             <LoadingSpinner />
           ) : filteredJobs.length === 0 ? (
             <EmptyState message="No jobs found" />
           ) : (
-            filteredJobs.map(job => (
-              <div key={job.id} className="grid grid-cols-[110px_1fr_130px_140px_110px_110px] gap-2">
-                <div
-                  className="table-row rounded-hh-lg px-2 text-xs text-hh-green underline cursor-pointer hover:opacity-80"
-                  onClick={() => navigate(jobDetailPath(role, job.id))}
-                >
-                  {job.job_id}
-                </div>
-                <div className="table-row rounded-hh-lg px-2 text-xs flex items-center gap-1.5">
-                  <span className="truncate">{job.job_name}</span>
-                  {flaggedJobIds.has(job.id) && !['job_closed','payment_confirmed','cancelled'].includes(job.status) && (
-                    <span className="shrink-0 text-[9px] font-bold bg-red-100 text-hh-error px-1.5 py-0.5 rounded-full whitespace-nowrap"
-                      title="A worker is on leave — replacement needed">
-                      ⚠ REPLACE
-                    </span>
-                  )}
-                  {isJobExpired(job) && (
-                    <span className="shrink-0 text-[9px] font-bold bg-red-600 text-white px-1.5 py-0.5 rounded-full whitespace-nowrap"
-                      title="This job's scheduled end date has passed but it was never closed">
-                      JOB NOT CLOSED, EXPIRED
-                    </span>
-                  )}
-                </div>
-                <div className="table-row rounded-hh-lg px-2 text-xs">
-                  {job.job_category === 'frequent' ? 'Recurring'
-                    : job.job_category === 'one-time' ? 'One-time'
-                    : (job.job_specifications?.job_type_name || '—')}
-                </div>
-                <div className="table-row rounded-hh-lg px-2 text-xs capitalize">
-                  {JOB_STATUS_LABELS[job.status] || job.status}
-                </div>
-                <div className="table-row rounded-hh-lg px-2 text-xs">
-                  {formatDate(job.job_from_date)}
-                </div>
-                <div className="table-row rounded-hh-lg px-2 gap-1">
-                  <button
-                    onClick={() => navigate(jobDetailPath(role, job.id))}
-                    className="btn-icon w-8 h-8"
-                    title="View/Edit"
-                  >
-                    <PencilIcon />
-                  </button>
-                  {isAdmin && (
-                    <button
-                      onClick={() => setDeleteTarget(job)}
-                      className="btn-icon w-8 h-8 hover:text-hh-error"
-                      title="Delete"
-                    >
-                      <TrashIcon />
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))
+            <Table>
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead className="w-[110px]">ID</TableHead>
+                  <TableHead>Name</TableHead>
+                  <FilterHead
+                    label="Type"
+                    options={[{ value: 'one-time', label: 'One-time' }, { value: 'frequent', label: 'Recurring' }]}
+                    selected={typeFilter} onChange={(v) => toggleSet(setTypeFilter, v)} onClear={() => setTypeFilter([])}
+                  />
+                  <FilterHead
+                    label="Status"
+                    options={Object.entries(JOB_STATUS_LABELS).map(([value, label]) => ({ value, label }))}
+                    selected={statusFilter2} onChange={(v) => toggleSet(setStatusFilter2, v)} onClear={() => setStatusFilter2([])}
+                  />
+                  <TableHead>Date</TableHead>
+                  <TableHead className="text-right">Action</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredJobs.map(job => (
+                  <TableRow key={job.id} className="cursor-pointer" onClick={() => navigate(jobDetailPath(role, job.id))}>
+                    <TableCell className="font-medium text-primary">{job.job_id}</TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-foreground">{job.job_name}</span>
+                        {flaggedJobIds.has(job.id) && !['job_closed', 'payment_confirmed', 'cancelled'].includes(job.status) && (
+                          <Badge variant="destructive" className="gap-1"><AlertTriangle className="h-3 w-3" /> Replace</Badge>
+                        )}
+                        {isJobExpired(job) && (
+                          <Badge variant="warning" className="gap-1"><CalendarClock className="h-3 w-3" /> Expired</Badge>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {job.job_category === 'frequent' ? 'Recurring'
+                        : job.job_category === 'one-time' ? 'One-time'
+                        : (job.job_specifications?.job_type_name || '—')}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={statusVariant(job.status)}>{JOB_STATUS_LABELS[job.status] || job.status}</Badge>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">{formatDate(job.job_from_date)}</TableCell>
+                    <TableCell className="text-right" onClick={e => e.stopPropagation()}>
+                      <div className="flex items-center justify-end gap-1">
+                        <Button variant="ghost" size="icon" className="h-8 w-8" title="View / Edit"
+                          onClick={() => navigate(jobDetailPath(role, job.id))}>
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        {isAdmin && (
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                            title="Delete" onClick={() => setDeleteTarget(job)}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           )}
-        </div>
+        </Card>
 
         {deleteTarget && (
           <ConfirmModal
-            message={`Are you sure? Jobs can only be deleted at Request Raised stage.`}
+            title="Delete job?"
+            message="Jobs can only be deleted at the Request Raised stage. This cannot be undone."
+            confirmLabel="Delete"
             onConfirm={handleDelete}
             onCancel={() => setDeleteTarget(null)}
           />
         )}
       </div>
 
-      {/* ── Job Type Selection Modal ───────────────── */}
-      {showTypeModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
-          <div className="bg-hh-mint rounded-hh-xl shadow-hh-lg w-full max-w-sm p-8 space-y-6">
-            <h2 className="text-lg font-semibold text-center text-hh-text">Select Job Type</h2>
-            <div className="flex gap-4 justify-center">
-              <button
-                onClick={() => { setShowTypeModal(false); navigate(jobNewPath(role), { state: { category: 'one-time' } }) }}
-                className="flex-1 py-4 bg-white text-hh-text font-medium rounded-hh border-2 border-hh-green hover:bg-hh-green hover:text-white transition-colors"
-              >
-                One-Time Job
-              </button>
-              <button
-                onClick={() => { setShowTypeModal(false); navigate(jobNewPath(role), { state: { category: 'frequent' } }) }}
-                className="flex-1 py-4 bg-white text-hh-text font-medium rounded-hh border-2 border-hh-green hover:bg-hh-green hover:text-white transition-colors"
-              >
-                Frequent Job
-              </button>
-            </div>
-            <button onClick={() => setShowTypeModal(false)} className="w-full btn-filter text-sm">
-              Cancel
+      {/* Job type selection */}
+      <Dialog open={showTypeModal} onOpenChange={setShowTypeModal}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Create a new job</DialogTitle>
+            <DialogDescription>Choose the type of job to create.</DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-3 pt-2">
+            <button
+              onClick={() => { setShowTypeModal(false); navigate(jobNewPath(role), { state: { category: 'one-time' } }) }}
+              className="flex flex-col items-center gap-2 rounded-xl border-2 border-border p-6 text-center transition-colors hover:border-primary hover:bg-accent"
+            >
+              <CalendarClock className="h-6 w-6 text-primary" />
+              <span className="text-sm font-semibold">One-Time Job</span>
+            </button>
+            <button
+              onClick={() => { setShowTypeModal(false); navigate(jobNewPath(role), { state: { category: 'frequent' } }) }}
+              className="flex flex-col items-center gap-2 rounded-xl border-2 border-border p-6 text-center transition-colors hover:border-primary hover:bg-accent"
+            >
+              <ListFilter className="h-6 w-6 text-primary" />
+              <span className="text-sm font-semibold">Recurring Job</span>
             </button>
           </div>
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
     </MainLayout>
   )
 }
 
-/* ── Column header with a multi-select filter dropdown ── */
-function ColumnFilterHeader({ label, open, onToggle, options, selected, onChange, onClear }) {
+/* Column header with multi-select filter dropdown */
+function FilterHead({ label, options, selected, onChange, onClear }) {
   const active = selected.length > 0
   return (
-    <div className="table-header rounded-hh-lg px-2 text-xs relative flex items-center justify-between">
-      <span>{label}</span>
-      <button onClick={onToggle}
-        className={`ml-1 flex items-center justify-center w-5 h-5 rounded ${active ? 'text-hh-green' : 'text-hh-placeholder'}`}
-        title="Filter">
-        <span className="text-[10px]">▼</span>
-        {active && <span className="absolute -top-1 -right-1 w-2 h-2 bg-hh-green rounded-full" />}
-      </button>
-
-      {open && (
-        <>
-          {/* click-away backdrop */}
-          <div className="fixed inset-0 z-40" onClick={onToggle} />
-          <div className="absolute top-full left-0 mt-1 z-50 bg-white rounded-xl shadow-lg border border-gray-100 p-2 min-w-[180px] max-h-64 overflow-y-auto"
-            onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-1 pb-1 mb-1 border-b border-gray-100">
-              <span className="text-[11px] font-semibold text-hh-text">Filter {label}</span>
-              {active && (
-                <button onClick={onClear} className="text-[11px] text-hh-green underline">Clear</button>
-              )}
-            </div>
-            {options.map(opt => (
-              <label key={opt.value}
-                className="flex items-center gap-2 px-1 py-1.5 rounded hover:bg-gray-50 cursor-pointer">
-                <input type="checkbox" checked={selected.includes(opt.value)}
-                  onChange={() => onChange(opt.value)}
-                  className="accent-hh-green" />
-                <span className="text-xs text-hh-text normal-case">{opt.label}</span>
-              </label>
-            ))}
+    <TableHead>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button className={cn('inline-flex items-center gap-1 uppercase tracking-wide', active ? 'text-primary' : 'text-muted-foreground')}>
+            {label} <ListFilter className="h-3 w-3" />
+            {active && <span className="h-1.5 w-1.5 rounded-full bg-primary" />}
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="max-h-72 w-52 overflow-y-auto p-2">
+          <div className="mb-1 flex items-center justify-between border-b border-border px-1 pb-1.5">
+            <span className="text-xs font-semibold">Filter {label}</span>
+            {active && <button onClick={onClear} className="text-xs text-primary hover:underline">Clear</button>}
           </div>
-        </>
-      )}
-    </div>
+          {options.map(opt => (
+            <label key={opt.value} className="flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1.5 hover:bg-muted">
+              <input type="checkbox" checked={selected.includes(opt.value)} onChange={() => onChange(opt.value)} className="accent-primary" />
+              <span className="text-sm normal-case text-foreground">{opt.label}</span>
+            </label>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </TableHead>
   )
 }

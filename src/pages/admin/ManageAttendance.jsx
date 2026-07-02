@@ -1,45 +1,42 @@
 import { useState, useEffect } from 'react'
+import { MapPin, Flag, Pencil } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import MainLayout from '../../layouts/MainLayout'
 import {
-  getAllAttendanceRecords, correctAttendanceRecord,
-  getAvailableReplacementWorkers,
+  getAllAttendanceRecords, correctAttendanceRecord, getAvailableReplacementWorkers,
 } from '../../services/jobService'
+import { exportAttendanceCSV, exportAttendanceExcel, exportAttendancePDF } from '../../utils/attendanceExport'
 import {
-  exportAttendanceCSV, exportAttendanceExcel, exportAttendancePDF,
-} from '../../utils/attendanceExport'
-import {
-  getLeaveRequestsToReview, reviewLeaveRequest,
-  getOpenReplacementFlags, assignReplacement, getUsersOnLeave,
+  getLeaveRequestsToReview, reviewLeaveRequest, getOpenReplacementFlags, assignReplacement, getUsersOnLeave,
 } from '../../services/leaveService'
-
-/* ────────────────────────────────────────────────────────────────────────
-   ManageAttendance — internal team (admin/supervisor) view of all
-   check-in/out records, with correction capability (forgotten checkout,
-   wrong tap). Read-only display + a correction modal. No approval workflow.
-──────────────────────────────────────────────────────────────────────────*/
+import LoadingSpinner from '../../components/LoadingSpinner'
+import ErrorBanner from '../../components/ErrorBanner'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import { Badge } from '@/components/ui/badge'
+import { Card } from '@/components/ui/card'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 
 const todayStr = () => new Date().toISOString().slice(0, 10)
-const weekAgoStr = () => {
-  const d = new Date(); d.setDate(d.getDate() - 7)
-  return d.toISOString().slice(0, 10)
-}
+const weekAgoStr = () => { const d = new Date(); d.setDate(d.getDate() - 7); return d.toISOString().slice(0, 10) }
+const fmtDateTime = (iso) => { if (!iso) return '—'; try { return new Date(iso).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) } catch { return '—' } }
+const fmtTime = (iso) => { if (!iso) return '—'; try { return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) } catch { return '—' } }
 
-const fmtDateTime = (iso) => {
-  if (!iso) return '—'
-  try { return new Date(iso).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) }
-  catch { return '—' }
-}
-const fmtTime = (iso) => {
-  if (!iso) return '—'
-  try { return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }
-  catch { return '—' }
-}
-
-const STATUS_STYLE = {
-  not_started: 'bg-gray-100 text-gray-500',
-  checked_in:  'bg-blue-50 text-blue-600',
-  completed:   'bg-green-50 text-hh-green',
+function StatusBadge({ status, corrected }) {
+  const v = status === 'completed' ? 'success' : status === 'not_started' ? 'muted' : null
+  return (
+    <span className="inline-flex items-center gap-1">
+      {v
+        ? <Badge variant={v} className="capitalize">{(status || '').replace('_', ' ')}</Badge>
+        : <Badge className="border-transparent bg-blue-50 capitalize text-blue-600">{(status || '').replace('_', ' ')}</Badge>}
+      {corrected && <Pencil className="h-3 w-3 text-warning" title={`Corrected ${fmtDateTime(corrected)}`} />}
+    </span>
+  )
 }
 
 export default function ManageAttendance() {
@@ -51,434 +48,231 @@ export default function ManageAttendance() {
   const [dateFrom, setDateFrom] = useState(weekAgoStr())
   const [dateTo, setDateTo] = useState(todayStr())
   const [search, setSearch] = useState('')
-  const [editing, setEditing] = useState(null)   // row being corrected
+  const [editing, setEditing] = useState(null)
   const [leaves, setLeaves] = useState(null)
   const [flags, setFlags] = useState(null)
   const [onLeave, setOnLeave] = useState(null)
-  const [replacing, setReplacing] = useState(null)  // flag being filled
+  const [replacing, setReplacing] = useState(null)
   const [replSearch, setReplSearch] = useState('')
   const [replFrom, setReplFrom] = useState('')
   const [replTo, setReplTo] = useState('')
 
   const load = async () => {
     setRows(null); setError('')
-    try {
-      const data = await getAllAttendanceRecords({ dateFrom, dateTo, viewerType })
-      setRows(data)
-    } catch (e) {
-      setError(e.message || 'Could not load attendance records')
-      setRows([])
-    }
+    try { setRows(await getAllAttendanceRecords({ dateFrom, dateTo, viewerType })) }
+    catch (e) { setError(e.message || 'Could not load attendance records'); setRows([]) }
   }
+  useEffect(() => { load() }, [dateFrom, dateTo]) // eslint-disable-line
 
-  useEffect(() => { load() }, [dateFrom, dateTo])   // eslint-disable-line
-
-  const loadLeaves = async () => {
-    setLeaves(null)
-    try {
-      const data = await getLeaveRequestsToReview({ viewerType, statusFilter: 'pending' })
-      setLeaves(data)
-    } catch { setLeaves([]) }
-  }
-  const loadFlags = async () => {
-    setFlags(null)
-    try {
-      const data = await getOpenReplacementFlags()
-      setFlags(data)
-    } catch { setFlags([]) }
-  }
-  const loadOnLeave = async () => {
-    setOnLeave(null)
-    try {
-      const data = await getUsersOnLeave()
-      setOnLeave(data)
-    } catch { setOnLeave([]) }
-  }
+  const loadLeaves = async () => { setLeaves(null); try { setLeaves(await getLeaveRequestsToReview({ viewerType, statusFilter: 'pending' })) } catch { setLeaves([]) } }
+  const loadFlags = async () => { setFlags(null); try { setFlags(await getOpenReplacementFlags()) } catch { setFlags([]) } }
+  const loadOnLeave = async () => { setOnLeave(null); try { setOnLeave(await getUsersOnLeave()) } catch { setOnLeave([]) } }
 
   useEffect(() => {
     if (tab === 'leave' && leaves === null) loadLeaves()
     if (tab === 'replacements' && flags === null) loadFlags()
     if (tab === 'onleave' && onLeave === null) loadOnLeave()
-  }, [tab])   // eslint-disable-line
+  }, [tab]) // eslint-disable-line
 
   const handleReview = async (leaveId, decision) => {
-    try {
-      await reviewLeaveRequest(leaveId, decision, user?.id, null)
-      await loadLeaves()
-      // refresh flags too since approval creates them
-      setFlags(null)
-    } catch (e) {
-      setError(e.message || 'Could not review leave')
-    }
+    try { await reviewLeaveRequest(leaveId, decision, user?.id, null); await loadLeaves(); setFlags(null) }
+    catch (e) { setError(e.message || 'Could not review leave') }
   }
 
   const filtered = (rows || []).filter(r => {
     if (!search.trim()) return true
     const q = search.toLowerCase()
-    return (r.worker_name || '').toLowerCase().includes(q)
-      || (r.job_name || '').toLowerCase().includes(q)
-      || (r.job_code || '').toLowerCase().includes(q)
+    return (r.worker_name || '').toLowerCase().includes(q) || (r.job_name || '').toLowerCase().includes(q) || (r.job_code || '').toLowerCase().includes(q)
   })
 
   return (
     <MainLayout title="Manage Attendance">
-    <div className="px-6 py-6 max-w-6xl mx-auto">
-      <h1 className="text-2xl font-bold text-hh-text mb-1">Manage Attendance</h1>
-      <p className="text-sm text-hh-placeholder mb-5">
-        View worker check-in/out records. Correct forgotten check-outs or mistaken taps.
-      </p>
-
-      {/* Tabs */}
-      <div className="flex gap-6 border-b border-gray-200 mb-5">
-        {[
-          { key: 'attendance', label: 'Attendance' },
-          { key: 'leave', label: 'Leave Requests' },
-          { key: 'onleave', label: 'On Leave' },
-          { key: 'replacements', label: 'Replacements Needed' },
-        ].map(t => (
-          <button key={t.key} onClick={() => setTab(t.key)}
-            className={`pb-2 text-sm font-semibold transition-colors
-              ${tab === t.key ? 'text-hh-text border-b-2 border-hh-green' : 'text-hh-placeholder'}`}>
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      {tab === 'attendance' && (
-      <>
-      {/* Filters */}
-      <div className="flex flex-wrap gap-3 items-end mb-5">
+      <div className="space-y-5">
         <div>
-          <label className="block text-xs text-hh-placeholder mb-1">From</label>
-          <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
-            className="form-cell px-3 py-1.5 text-sm" />
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">Manage Attendance</h1>
+          <p className="mt-1 text-sm text-muted-foreground">View worker check-in/out records. Correct forgotten check-outs or mistaken taps.</p>
         </div>
-        <div>
-          <label className="block text-xs text-hh-placeholder mb-1">To</label>
-          <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
-            className="form-cell px-3 py-1.5 text-sm" />
-        </div>
-        <div className="flex-1 min-w-[200px]">
-          <label className="block text-xs text-hh-placeholder mb-1">Search</label>
-          <input type="text" placeholder="Worker, job name or ID"
-            value={search} onChange={e => setSearch(e.target.value)}
-            className="form-cell px-3 py-1.5 text-sm w-full" />
-        </div>
-      </div>
 
-      {error && <div className="bg-red-50 text-hh-error text-sm rounded-hh px-3 py-2 mb-4">{error}</div>}
+        <Tabs value={tab} onValueChange={setTab}>
+          <TabsList>
+            <TabsTrigger value="attendance">Attendance</TabsTrigger>
+            <TabsTrigger value="leave">Leave Requests</TabsTrigger>
+            <TabsTrigger value="onleave">On Leave</TabsTrigger>
+            <TabsTrigger value="replacements">Replacements</TabsTrigger>
+          </TabsList>
 
-      {/* Export buttons */}
-      {rows !== null && filtered.length > 0 && (
-        <div className="flex items-center gap-2 mb-3">
-          <span className="text-xs text-hh-placeholder mr-1">Export {filtered.length} record{filtered.length > 1 ? 's' : ''}:</span>
-          <button onClick={() => exportAttendanceCSV(filtered)}
-            className="text-xs font-medium px-3 py-1.5 rounded-hh border border-gray-300 hover:border-hh-green hover:text-hh-green transition-colors">
-            CSV
-          </button>
-          <button onClick={() => exportAttendanceExcel(filtered)}
-            className="text-xs font-medium px-3 py-1.5 rounded-hh border border-gray-300 hover:border-hh-green hover:text-hh-green transition-colors">
-            Excel
-          </button>
-          <button onClick={() => exportAttendancePDF(filtered)}
-            className="text-xs font-medium px-3 py-1.5 rounded-hh border border-gray-300 hover:border-hh-green hover:text-hh-green transition-colors">
-            PDF
-          </button>
-        </div>
-      )}
-
-      {rows === null ? (
-        <div className="flex justify-center py-16">
-          <span className="w-7 h-7 border-2 border-gray-300 border-t-hh-green rounded-full animate-spin" />
-        </div>
-      ) : filtered.length === 0 ? (
-        <div className="text-center py-16 text-hh-placeholder text-sm">
-          No attendance records for this period.
-        </div>
-      ) : (
-        <div className="overflow-x-auto bg-white rounded-hh shadow-sm">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-200 text-left text-hh-placeholder">
-                <th className="px-3 py-2.5 font-medium">Worker</th>
-                <th className="px-3 py-2.5 font-medium">Job</th>
-                <th className="px-3 py-2.5 font-medium">Date</th>
-                <th className="px-3 py-2.5 font-medium">Check In</th>
-                <th className="px-3 py-2.5 font-medium">Check Out</th>
-                <th className="px-3 py-2.5 font-medium">Hours</th>
-                <th className="px-3 py-2.5 font-medium">Location</th>
-                <th className="px-3 py-2.5 font-medium">Status</th>
-                <th className="px-3 py-2.5 font-medium">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map(r => (
-                <tr key={r.id} className="border-b border-gray-100 hover:bg-hh-mint/40">
-                  <td className="px-3 py-2.5 font-medium text-hh-text">
-                    {r.worker_name}
-                    {r.worker_type === 'supervisor' && (
-                      <span className="ml-1.5 text-[10px] bg-purple-100 text-purple-600 px-1.5 py-0.5 rounded">SUP</span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2.5">
-                    <span className="text-hh-green font-medium">{r.job_code}</span>
-                    <span className="text-hh-placeholder"> · {r.job_name}</span>
-                  </td>
-                  <td className="px-3 py-2.5">{r.attendance_date}</td>
-                  <td className="px-3 py-2.5">
-                    {fmtTime(r.checkin_at)}
-                    {r.location_missing && (
-                      <span className="ml-1 text-[10px] text-hh-error" title="Location not captured">⚑</span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2.5">{fmtTime(r.checkout_at)}</td>
-                  <td className="px-3 py-2.5">{r.total_hours != null ? `${r.total_hours}h` : '—'}</td>
-                  <td className="px-3 py-2.5">
-                    {r.checkin_latitude != null && r.checkin_longitude != null ? (
-                      <a
-                        href={`https://www.google.com/maps?q=${r.checkin_latitude},${r.checkin_longitude}`}
-                        target="_blank" rel="noopener noreferrer"
-                        className="text-hh-green hover:underline text-xs"
-                        title={`${r.checkin_latitude}, ${r.checkin_longitude}`}
-                      >
-                        📍 View
-                      </a>
-                    ) : r.location_missing ? (
-                      <span className="text-xs text-hh-error">Not captured</span>
-                    ) : (
-                      <span className="text-xs text-hh-placeholder">—</span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2.5">
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${STATUS_STYLE[r.att_status] || ''}`}>
-                      {(r.att_status || '').replace('_', ' ')}
-                    </span>
-                    {r.corrected_at && (
-                      <span className="ml-1 text-[10px] text-amber-600" title={`Corrected ${fmtDateTime(r.corrected_at)}`}>✎</span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2.5">
-                    <button onClick={() => setEditing(r)}
-                      className="text-hh-green font-medium hover:underline text-xs">
-                      Correct
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-      </>
-      )}
-
-      {/* ── LEAVE REQUESTS TAB ── */}
-      {tab === 'leave' && (
-        <LeaveReviewList leaves={leaves} onReview={handleReview} />
-      )}
-
-      {/* ── ON LEAVE TAB ── */}
-      {tab === 'onleave' && (
-        <OnLeaveList rows={onLeave} />
-      )}
-
-      {/* ── REPLACEMENTS NEEDED TAB ── */}
-      {tab === 'replacements' && (
-        <>
-          <div className="flex flex-wrap items-end gap-3 mb-4">
-            <div className="flex-1 min-w-[180px]">
-              <label className="block text-xs text-hh-placeholder mb-1">Search</label>
-              <input value={replSearch} onChange={e => setReplSearch(e.target.value)}
-                placeholder="Worker or job name"
-                className="form-cell px-3 py-2 text-sm w-full" />
+          {/* Attendance */}
+          <TabsContent value="attendance" className="space-y-4">
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="flex flex-col gap-1.5"><Label>From</Label><Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="w-auto" /></div>
+              <div className="flex flex-col gap-1.5"><Label>To</Label><Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="w-auto" /></div>
+              <div className="flex min-w-[200px] flex-1 flex-col gap-1.5"><Label>Search</Label><Input placeholder="Worker, job name or ID" value={search} onChange={e => setSearch(e.target.value)} /></div>
             </div>
-            <div>
-              <label className="block text-xs text-hh-placeholder mb-1">From</label>
-              <input type="date" value={replFrom} onChange={e => setReplFrom(e.target.value)}
-                className="form-cell px-3 py-2 text-sm" />
-            </div>
-            <div>
-              <label className="block text-xs text-hh-placeholder mb-1">To</label>
-              <input type="date" value={replTo} onChange={e => setReplTo(e.target.value)}
-                className="form-cell px-3 py-2 text-sm" />
-            </div>
-            {(replSearch || replFrom || replTo) && (
-              <button onClick={() => { setReplSearch(''); setReplFrom(''); setReplTo('') }}
-                className="px-3 py-2 text-sm text-hh-placeholder underline">Clear</button>
+
+            {error && <ErrorBanner message={error} onClose={() => setError('')} />}
+
+            {rows !== null && filtered.length > 0 && (
+              <div className="flex items-center gap-2">
+                <span className="mr-1 text-xs text-muted-foreground">Export {filtered.length} record{filtered.length > 1 ? 's' : ''}:</span>
+                <Button variant="outline" size="sm" onClick={() => exportAttendanceCSV(filtered)}>CSV</Button>
+                <Button variant="outline" size="sm" onClick={() => exportAttendanceExcel(filtered)}>Excel</Button>
+                <Button variant="outline" size="sm" onClick={() => exportAttendancePDF(filtered)}>PDF</Button>
+              </div>
             )}
-          </div>
-          <ReplacementsList
-            flags={filterReplacements(flags, replSearch, replFrom, replTo)}
-            onReplace={(flag) => setReplacing(flag)}
-          />
-        </>
-      )}
 
-      {editing && (
-        <CorrectionModal
-          row={editing}
-          correctedBy={user?.id}
-          onClose={() => setEditing(null)}
-          onSaved={() => { setEditing(null); load() }}
-        />
-      )}
+            {rows === null ? <LoadingSpinner /> : filtered.length === 0 ? (
+              <Card className="py-16 text-center text-sm text-muted-foreground">No attendance records for this period.</Card>
+            ) : (
+              <Card className="overflow-hidden">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="hover:bg-transparent">
+                      <TableHead>Worker</TableHead><TableHead>Job</TableHead><TableHead>Date</TableHead>
+                      <TableHead>Check In</TableHead><TableHead>Check Out</TableHead><TableHead>Hours</TableHead>
+                      <TableHead>Location</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Action</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filtered.map(r => (
+                      <TableRow key={r.id}>
+                        <TableCell className="font-medium text-foreground">
+                          <span className="inline-flex items-center gap-1.5">{r.worker_name}{r.worker_type === 'supervisor' && <Badge variant="secondary" className="text-[10px]">SUP</Badge>}</span>
+                        </TableCell>
+                        <TableCell><span className="font-medium text-primary">{r.job_code}</span><span className="text-muted-foreground"> · {r.job_name}</span></TableCell>
+                        <TableCell className="text-muted-foreground">{r.attendance_date}</TableCell>
+                        <TableCell>
+                          <span className="inline-flex items-center gap-1">{fmtTime(r.checkin_at)}{r.location_missing && <Flag className="h-3 w-3 text-destructive" title="Location not captured" />}</span>
+                        </TableCell>
+                        <TableCell>{fmtTime(r.checkout_at)}</TableCell>
+                        <TableCell className="text-muted-foreground">{r.total_hours != null ? `${r.total_hours}h` : '—'}</TableCell>
+                        <TableCell>
+                          {r.checkin_latitude != null && r.checkin_longitude != null ? (
+                            <a href={`https://www.google.com/maps?q=${r.checkin_latitude},${r.checkin_longitude}`} target="_blank" rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-xs text-primary hover:underline" title={`${r.checkin_latitude}, ${r.checkin_longitude}`}>
+                              <MapPin className="h-3 w-3" /> View
+                            </a>
+                          ) : r.location_missing ? <span className="text-xs text-destructive">Not captured</span> : <span className="text-xs text-muted-foreground">—</span>}
+                        </TableCell>
+                        <TableCell><StatusBadge status={r.att_status} corrected={r.corrected_at} /></TableCell>
+                        <TableCell className="text-right"><Button variant="ghost" size="sm" onClick={() => setEditing(r)}>Correct</Button></TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </Card>
+            )}
+          </TabsContent>
 
-      {replacing && (
-        <ReplacementModal
-          flag={replacing}
-          viewerId={user?.id}
-          onClose={() => setReplacing(null)}
-          onAssigned={() => { setReplacing(null); loadFlags() }}
-        />
-      )}
-    </div>
+          <TabsContent value="leave"><LeaveReviewList leaves={leaves} onReview={handleReview} /></TabsContent>
+          <TabsContent value="onleave"><OnLeaveList rows={onLeave} /></TabsContent>
+
+          <TabsContent value="replacements" className="space-y-4">
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="flex min-w-[180px] flex-1 flex-col gap-1.5"><Label>Search</Label><Input value={replSearch} onChange={e => setReplSearch(e.target.value)} placeholder="Worker or job name" /></div>
+              <div className="flex flex-col gap-1.5"><Label>From</Label><Input type="date" value={replFrom} onChange={e => setReplFrom(e.target.value)} className="w-auto" /></div>
+              <div className="flex flex-col gap-1.5"><Label>To</Label><Input type="date" value={replTo} onChange={e => setReplTo(e.target.value)} className="w-auto" /></div>
+              {(replSearch || replFrom || replTo) && <Button variant="ghost" size="sm" onClick={() => { setReplSearch(''); setReplFrom(''); setReplTo('') }}>Clear</Button>}
+            </div>
+            <ReplacementsList flags={filterReplacements(flags, replSearch, replFrom, replTo)} onReplace={(flag) => setReplacing(flag)} />
+          </TabsContent>
+        </Tabs>
+      </div>
+
+      {editing && <CorrectionModal row={editing} correctedBy={user?.id} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load() }} />}
+      {replacing && <ReplacementModal flag={replacing} viewerId={user?.id} onClose={() => setReplacing(null)} onAssigned={() => { setReplacing(null); loadFlags() }} />}
     </MainLayout>
   )
 }
 
-/* ── Leave review list ── */
 function LeaveReviewList({ leaves, onReview }) {
-  if (leaves === null) {
-    return <div className="flex justify-center py-16">
-      <span className="w-7 h-7 border-2 border-gray-300 border-t-hh-green rounded-full animate-spin" /></div>
-  }
-  if (leaves.length === 0) {
-    return <div className="text-center py-16 text-hh-placeholder text-sm">No pending leave requests.</div>
-  }
+  if (leaves === null) return <LoadingSpinner />
+  if (leaves.length === 0) return <Card className="py-16 text-center text-sm text-muted-foreground">No pending leave requests.</Card>
   const reasonLabel = { sick: 'Sick', personal: 'Personal', emergency: 'Emergency', other: 'Other' }
   const durLabel = { full_day: 'Full Day', first_half: 'Morning', second_half: 'Afternoon' }
   return (
     <div className="space-y-3">
       {leaves.map(l => (
-        <div key={l.id} className="bg-white rounded-hh shadow-sm p-4 flex items-center justify-between">
+        <Card key={l.id} className="flex items-center justify-between p-4">
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-semibold text-hh-text">{l.requester_name}</span>
-              {l.requester_type === 'supervisor' && (
-                <span className="text-[10px] bg-purple-100 text-purple-600 px-1.5 py-0.5 rounded">SUP</span>
-              )}
+              <span className="font-semibold text-foreground">{l.requester_name}</span>
+              {l.requester_type === 'supervisor' && <Badge variant="secondary" className="text-[10px]">SUP</Badge>}
             </div>
-            <p className="text-sm text-hh-placeholder mt-0.5">
+            <p className="mt-0.5 text-sm text-muted-foreground">
               {l.leave_date}{l.leave_to_date && l.leave_to_date !== l.leave_date ? ` – ${l.leave_to_date}` : ''} · {durLabel[l.duration]} · {reasonLabel[l.reason]}
             </p>
-            {l.note && <p className="text-xs text-hh-placeholder mt-1 italic">"{l.note}"</p>}
+            {l.note && <p className="mt-1 text-xs italic text-muted-foreground">"{l.note}"</p>}
           </div>
           <div className="flex gap-2">
-            <button onClick={() => onReview(l.id, 'reject')}
-              className="px-4 py-2 text-sm font-medium text-hh-error border border-red-200 rounded-hh hover:bg-red-50">
-              Reject
-            </button>
-            <button onClick={() => onReview(l.id, 'approve')}
-              className="px-4 py-2 text-sm font-medium text-white bg-hh-green rounded-hh hover:opacity-90">
-              Approve
-            </button>
+            <Button variant="outline" className="text-destructive hover:text-destructive" onClick={() => onReview(l.id, 'reject')}>Reject</Button>
+            <Button onClick={() => onReview(l.id, 'approve')}>Approve</Button>
           </div>
-        </div>
+        </Card>
       ))}
     </div>
   )
 }
 
-/* ── On Leave board — everyone (workers + supervisors) on approved leave ── */
 function OnLeaveList({ rows }) {
-  if (rows === null) {
-    return <div className="flex justify-center py-16">
-      <span className="w-7 h-7 border-2 border-gray-300 border-t-hh-green rounded-full animate-spin" /></div>
-  }
-  if (rows.length === 0) {
-    return <div className="text-center py-16 text-hh-placeholder text-sm">No one is currently on leave.</div>
-  }
+  if (rows === null) return <LoadingSpinner />
+  if (rows.length === 0) return <Card className="py-16 text-center text-sm text-muted-foreground">No one is currently on leave.</Card>
   const dateLabel = (r) => r.is_range ? `${r.leave_date} → ${r.to_date}` : r.leave_date
   return (
     <div className="space-y-3">
       {rows.map(r => (
-        <div key={r.id} className="bg-white rounded-hh shadow-sm p-4 flex items-center justify-between">
+        <Card key={r.id} className="flex items-center justify-between p-4">
           <div>
-            <div className="flex items-center gap-2">
-              <span className="font-semibold text-hh-text">{r.person_name}</span>
-              {r.person_type === 'supervisor' && (
-                <span className="text-[10px] bg-purple-100 text-purple-600 px-1.5 py-0.5 rounded">SUPERVISOR</span>
-              )}
-              {r.person_type === 'helper' && (
-                <span className="text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded">WORKER</span>
-              )}
-              {r.active && (
-                <span className="text-[10px] font-bold bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full">
-                  On leave now
-                </span>
-              )}
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-semibold text-foreground">{r.person_name}</span>
+              {r.person_type === 'supervisor' && <Badge variant="secondary" className="text-[10px]">SUPERVISOR</Badge>}
+              {r.person_type === 'helper' && <Badge className="border-transparent bg-blue-50 text-[10px] text-blue-600">WORKER</Badge>}
+              {r.active && <Badge variant="warning">On leave now</Badge>}
             </div>
-            <p className="text-sm text-hh-placeholder mt-0.5">
-              {dateLabel(r)} · {r.duration_label}
-            </p>
-            {r.note && <p className="text-xs text-hh-placeholder mt-1 italic">"{r.note}"</p>}
+            <p className="mt-0.5 text-sm text-muted-foreground">{dateLabel(r)} · {r.duration_label}</p>
+            {r.note && <p className="mt-1 text-xs italic text-muted-foreground">"{r.note}"</p>}
           </div>
-          <div className="text-right">
-            <span className="text-xs text-hh-placeholder capitalize">{r.reason}</span>
-          </div>
-        </div>
+          <span className="text-xs capitalize text-muted-foreground">{r.reason}</span>
+        </Card>
       ))}
     </div>
   )
 }
 
-/* Filter grouped replacement entries by search text + overlapping date range.
-   Returns null while still loading (passes through), else the filtered array. */
 function filterReplacements(groups, search, from, to) {
   if (groups === null) return null
   const q = (search || '').trim().toLowerCase()
   return groups.filter(g => {
-    if (q) {
-      const hay = `${g.job_name} ${g.job_code} ${g.absent_name}`.toLowerCase()
-      if (!hay.includes(q)) return false
-    }
-    // Date filter: keep groups whose [from_date,to_date] overlaps [from,to]
+    if (q) { const hay = `${g.job_name} ${g.job_code} ${g.absent_name}`.toLowerCase(); if (!hay.includes(q)) return false }
     if (from && g.to_date < from) return false
     if (to && g.from_date > to) return false
     return true
   })
 }
 
-/* ── Replacements-needed list ── */
 function ReplacementsList({ flags, onReplace }) {
-  if (flags === null) {
-    return <div className="flex justify-center py-16">
-      <span className="w-7 h-7 border-2 border-gray-300 border-t-hh-green rounded-full animate-spin" /></div>
-  }
-  if (flags.length === 0) {
-    return <div className="text-center py-16 text-hh-placeholder text-sm">No replacements needed. 🎉</div>
-  }
-  const dateLabel = (g) => g.from_date === g.to_date
-    ? g.from_date
-    : `${g.from_date} to ${g.to_date}`
+  if (flags === null) return <LoadingSpinner />
+  if (flags.length === 0) return <Card className="py-16 text-center text-sm text-muted-foreground">No replacements needed. 🎉</Card>
+  const dateLabel = (g) => g.from_date === g.to_date ? g.from_date : `${g.from_date} to ${g.to_date}`
   return (
     <div className="space-y-3">
       {flags.map(g => (
-        <div key={`${g.job_id}_${g.absent_user_id}_${g.from_date}`}
-          className="bg-white rounded-hh shadow-sm p-4 flex items-center justify-between border-l-4 border-hh-error">
+        <Card key={`${g.job_id}_${g.absent_user_id}_${g.from_date}`} className="flex items-center justify-between border-l-4 border-l-destructive p-4">
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-hh-green font-semibold">{g.job_code}</span>
-              <span className="font-semibold text-hh-text">{g.job_name}</span>
+              <span className="font-semibold text-primary">{g.job_code}</span>
+              <span className="font-semibold text-foreground">{g.job_name}</span>
             </div>
-            <p className="text-sm text-hh-placeholder mt-0.5">
-              {g.absent_name} absent {dateLabel(g)}
-              {g.flag_ids.length > 1 && (
-                <span className="ml-1 text-xs text-hh-placeholder">({g.flag_ids.length} days)</span>
-              )}
+            <p className="mt-0.5 text-sm text-muted-foreground">
+              {g.absent_name} absent {dateLabel(g)}{g.flag_ids.length > 1 && <span className="ml-1 text-xs">({g.flag_ids.length} days)</span>}
             </p>
           </div>
-          <button onClick={() => onReplace(g)}
-            className="px-4 py-2 text-sm font-medium text-white bg-hh-green rounded-hh hover:opacity-90">
-            Replace Worker
-          </button>
-        </div>
+          <Button onClick={() => onReplace(g)}>Replace worker</Button>
+        </Card>
       ))}
     </div>
   )
 }
 
-/* ── Replacement assignment modal (editable coverage range) ── */
 function ReplacementModal({ flag, viewerId, onClose, onAssigned }) {
   const [fromDate, setFromDate] = useState(flag.from_date)
   const [toDate, setToDate] = useState(flag.to_date)
@@ -487,13 +281,10 @@ function ReplacementModal({ flag, viewerId, onClose, onAssigned }) {
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
 
-  // (Re)load smart-filtered candidates whenever the chosen window changes.
   useEffect(() => {
     if (!fromDate || !toDate || toDate < fromDate) { setHelpers([]); return }
     setHelpers(null); setSelected('')
-    getAvailableReplacementWorkers(flag.job_id, flag.absent_user_id, fromDate, toDate)
-      .then(list => setHelpers(list || []))
-      .catch(() => setHelpers([]))
+    getAvailableReplacementWorkers(flag.job_id, flag.absent_user_id, fromDate, toDate).then(list => setHelpers(list || [])).catch(() => setHelpers([]))
   }, [fromDate, toDate, flag])
 
   const save = async () => {
@@ -501,81 +292,49 @@ function ReplacementModal({ flag, viewerId, onClose, onAssigned }) {
     if (toDate < fromDate) { setErr('To date must be on or after From date.'); return }
     if (!selected) { setErr('Select a replacement worker.'); return }
     setSaving(true); setErr('')
-    try {
-      await assignReplacement(flag, selected, fromDate, toDate, viewerId)
-      onAssigned()
-    } catch (e) {
-      setErr(e.message || 'Could not assign replacement')
-      setSaving(false)
-    }
+    try { await assignReplacement(flag, selected, fromDate, toDate, viewerId); onAssigned() }
+    catch (e) { setErr(e.message || 'Could not assign replacement'); setSaving(false) }
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4" onClick={onClose}>
-      <div className="bg-white rounded-hh-xl shadow-hh-lg w-full max-w-md p-5" onClick={e => e.stopPropagation()}>
-        <h2 className="text-lg font-bold text-hh-text mb-1">Replace Worker</h2>
-        <p className="text-sm text-hh-placeholder mb-4">
-          {flag.job_code} · {flag.job_name} · {flag.absent_name} absent
-        </p>
-
-        <label className="block text-xs text-hh-placeholder mb-1">Coverage period</label>
-        <div className="grid grid-cols-2 gap-3 mb-4">
-          <div>
-            <span className="block text-[11px] text-hh-placeholder mb-0.5">From</span>
-            <input type="date" value={fromDate}
-              onChange={e => { setFromDate(e.target.value); if (toDate < e.target.value) setToDate(e.target.value) }}
-              className="form-cell px-3 py-2 text-sm w-full" />
+    <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Replace worker</DialogTitle>
+          <DialogDescription>{flag.job_code} · {flag.job_name} · {flag.absent_name} absent</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-col gap-1.5"><Label>From</Label><Input type="date" value={fromDate} onChange={e => { setFromDate(e.target.value); if (toDate < e.target.value) setToDate(e.target.value) }} /></div>
+            <div className="flex flex-col gap-1.5"><Label>To</Label><Input type="date" value={toDate} min={fromDate} onChange={e => setToDate(e.target.value)} /></div>
           </div>
-          <div>
-            <span className="block text-[11px] text-hh-placeholder mb-0.5">To</span>
-            <input type="date" value={toDate} min={fromDate}
-              onChange={e => setToDate(e.target.value)}
-              className="form-cell px-3 py-2 text-sm w-full" />
+          <div className="flex flex-col gap-1.5">
+            <Label>Replacement worker {helpers && helpers.length === 0 && '(none available for this window)'}</Label>
+            {helpers === null ? <p className="py-2 text-sm text-muted-foreground">Checking availability…</p> : (
+              <Select value={selected || undefined} onValueChange={setSelected} disabled={helpers.length === 0}>
+                <SelectTrigger><SelectValue placeholder="Select a worker…" /></SelectTrigger>
+                <SelectContent>{helpers.map(h => <SelectItem key={h.id} value={h.id}>{h.user_name}</SelectItem>)}</SelectContent>
+              </Select>
+            )}
+            <p className="text-xs text-muted-foreground">Workers on leave or already booked in this window are hidden.</p>
           </div>
+          {err && <ErrorBanner message={err} />}
         </div>
-
-        <label className="block text-xs text-hh-placeholder mb-1">
-          Replacement worker {helpers && helpers.length === 0 && '(none available for this window)'}
-        </label>
-        {helpers === null ? (
-          <p className="text-sm text-hh-placeholder py-2">Checking availability…</p>
-        ) : (
-          <select value={selected} onChange={e => setSelected(e.target.value)}
-            className="form-cell px-3 py-2 text-sm w-full mb-1" disabled={helpers.length === 0}>
-            <option value="">Select a worker…</option>
-            {helpers.map(h => (
-              <option key={h.id} value={h.id}>{h.user_name}</option>
-            ))}
-          </select>
-        )}
-        <p className="text-[11px] text-hh-placeholder mb-3">
-          Workers on leave or already booked in this window are hidden.
-        </p>
-
-        {err && <div className="bg-red-50 text-hh-error text-sm rounded-hh px-3 py-2 mb-3">{err}</div>}
-
-        <div className="flex gap-3 justify-end">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-hh-placeholder">Cancel</button>
-          <button onClick={save} disabled={saving || !selected} className="btn-action px-6 disabled:opacity-50">
-            {saving ? 'Assigning…' : 'Assign Replacement'}
-          </button>
-        </div>
-      </div>
-    </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button onClick={save} disabled={saving || !selected}>{saving ? 'Assigning…' : 'Assign replacement'}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
-/* ── Correction modal ── */
 function CorrectionModal({ row, correctedBy, onClose, onSaved }) {
-  // Pre-fill datetime-local inputs from existing values
   const toLocalInput = (iso) => {
     if (!iso) return ''
-    const d = new Date(iso)
-    const off = d.getTimezoneOffset()
-    const local = new Date(d.getTime() - off * 60000)
-    return local.toISOString().slice(0, 16)
+    const d = new Date(iso); const off = d.getTimezoneOffset()
+    return new Date(d.getTime() - off * 60000).toISOString().slice(0, 16)
   }
-
   const [checkinAt, setCheckinAt] = useState(toLocalInput(row.checkin_at))
   const [checkoutAt, setCheckoutAt] = useState(toLocalInput(row.checkout_at))
   const [note, setNote] = useState('')
@@ -588,59 +347,33 @@ function CorrectionModal({ row, correctedBy, onClose, onSaved }) {
       const corrections = {}
       corrections.checkin_at = checkinAt ? new Date(checkinAt).toISOString() : null
       corrections.checkout_at = checkoutAt ? new Date(checkoutAt).toISOString() : null
-
-      if (corrections.checkin_at && corrections.checkout_at
-          && new Date(corrections.checkout_at) <= new Date(corrections.checkin_at)) {
-        setErr('Check-out must be after check-in.')
-        setSaving(false)
-        return
+      if (corrections.checkin_at && corrections.checkout_at && new Date(corrections.checkout_at) <= new Date(corrections.checkin_at)) {
+        setErr('Check-out must be after check-in.'); setSaving(false); return
       }
-
       await correctAttendanceRecord(row.id, corrections, correctedBy, note || null)
       onSaved()
-    } catch (e) {
-      setErr(e.message || 'Could not save correction')
-      setSaving(false)
-    }
+    } catch (e) { setErr(e.message || 'Could not save correction'); setSaving(false) }
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4"
-      onClick={onClose}>
-      <div className="bg-white rounded-hh-xl shadow-hh-lg w-full max-w-md p-5"
-        onClick={e => e.stopPropagation()}>
-        <h2 className="text-lg font-bold text-hh-text mb-1">Correct Attendance</h2>
-        <p className="text-sm text-hh-placeholder mb-4">
-          {row.worker_name} · {row.job_code} · {row.attendance_date}
-        </p>
-
-        <label className="block text-xs text-hh-placeholder mb-1">Check In</label>
-        <input type="datetime-local" value={checkinAt} onChange={e => setCheckinAt(e.target.value)}
-          className="form-cell px-3 py-1.5 text-sm w-full mb-3" />
-
-        <label className="block text-xs text-hh-placeholder mb-1">Check Out</label>
-        <input type="datetime-local" value={checkoutAt} onChange={e => setCheckoutAt(e.target.value)}
-          className="form-cell px-3 py-1.5 text-sm w-full mb-3" />
-
-        <label className="block text-xs text-hh-placeholder mb-1">Reason for correction (optional)</label>
-        <textarea value={note} onChange={e => setNote(e.target.value)}
-          placeholder="e.g. worker forgot to check out"
-          className="form-cell px-3 py-2 text-sm w-full h-16 resize-none mb-1" />
-
-        <p className="text-[11px] text-hh-placeholder mb-4">
-          The original values are kept for audit. This change is recorded against your account.
-        </p>
-
-        {err && <div className="bg-red-50 text-hh-error text-sm rounded-hh px-3 py-2 mb-3">{err}</div>}
-
-        <div className="flex gap-3 justify-end">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-hh-placeholder">Cancel</button>
-          <button onClick={save} disabled={saving}
-            className="btn-action px-6 disabled:opacity-50">
-            {saving ? 'Saving…' : 'Save Correction'}
-          </button>
+    <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Correct attendance</DialogTitle>
+          <DialogDescription>{row.worker_name} · {row.job_code} · {row.attendance_date}</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="flex flex-col gap-1.5"><Label>Check in</Label><Input type="datetime-local" value={checkinAt} onChange={e => setCheckinAt(e.target.value)} /></div>
+          <div className="flex flex-col gap-1.5"><Label>Check out</Label><Input type="datetime-local" value={checkoutAt} onChange={e => setCheckoutAt(e.target.value)} /></div>
+          <div className="flex flex-col gap-1.5"><Label>Reason (optional)</Label><Textarea value={note} onChange={e => setNote(e.target.value)} placeholder="e.g. worker forgot to check out" className="min-h-[64px]" /></div>
+          <p className="text-xs text-muted-foreground">The original values are kept for audit. This change is recorded against your account.</p>
+          {err && <ErrorBanner message={err} />}
         </div>
-      </div>
-    </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save correction'}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

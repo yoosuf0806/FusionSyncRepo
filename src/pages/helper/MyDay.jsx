@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { MapPin, LogOut, Clock, ChevronRight, CalendarPlus } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import MainLayout from '../../layouts/MainLayout'
 import {
@@ -7,27 +8,24 @@ import {
   getUnassignedJobsForSupervisor,
 } from '../../services/jobService'
 import { applyForLeave } from '../../services/leaveService'
+import LoadingSpinner from '../../components/LoadingSpinner'
+import JobChecklist from '../../components/JobChecklist'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import { Card } from '@/components/ui/card'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { cn } from '@/lib/utils'
 
-/* ────────────────────────────────────────────────────────────────────────
-   MyDay — worker / supervisor check-in/out screen
-   Visual job cards, large tap buttons, minimal reading (low-literacy first).
-   Backend auto-captures date, time, GPS on each tap. No approval workflow.
-──────────────────────────────────────────────────────────────────────────*/
-
-const fmtTime = (iso) => {
-  if (!iso) return '—'
-  try {
-    return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-  } catch { return '—' }
-}
-
+const fmtTime = (iso) => { if (!iso) return '—'; try { return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) } catch { return '—' } }
 const fmtClock = (t) => (t || '').slice(0, 5) || '—'
-
 function elapsed(fromIso) {
   if (!fromIso) return ''
   const mins = Math.max(0, Math.floor((Date.now() - new Date(fromIso).getTime()) / 60000))
-  const h = Math.floor(mins / 60)
-  const m = mins % 60
+  const h = Math.floor(mins / 60), m = mins % 60
   return h > 0 ? `${h}h ${m}m` : `${m}m`
 }
 
@@ -41,391 +39,232 @@ export default function MyDay() {
   const [tab, setTab] = useState('today')
   const [busyJobId, setBusyJobId] = useState(null)
   const [error, setError] = useState('')
-  const [tick, setTick] = useState(0)   // re-render for live timers
+  const [tick, setTick] = useState(0)
   const [showLeave, setShowLeave] = useState(false)
 
   const today = new Date().toISOString().slice(0, 10)
 
   const load = async () => {
     if (!dbUser?.id) return
-    try {
-      const data = await getJobsForCheckin(dbUser.id, today)
-      setJobs(data)
-    } catch (e) {
-      setError(e.message || 'Could not load your jobs')
-      setJobs([])
-    }
+    try { setJobs(await getJobsForCheckin(dbUser.id, today)) }
+    catch (e) { setError(e.message || 'Could not load your jobs'); setJobs([]) }
   }
 
-  useEffect(() => { load() }, [dbUser?.id])             // eslint-disable-line
+  useEffect(() => { load() }, [dbUser?.id]) // eslint-disable-line
   useEffect(() => {
-    if (tab === 'upcoming' && upcoming === null && dbUser?.id) {
-      getUpcomingJobsForUser(dbUser.id, today)
-        .then(setUpcoming)
-        .catch(() => setUpcoming([]))
-    }
-    if (tab === 'unassigned' && unassigned === null && dbUser?.id && isSupervisor) {
-      getUnassignedJobsForSupervisor(dbUser.id, dbUser.department_id)
-        .then(setUnassigned)
-        .catch(() => setUnassigned([]))
-    }
-  }, [tab, upcoming, dbUser?.id])                        // eslint-disable-line
-  useEffect(() => {
-    const i = setInterval(() => setTick(t => t + 1), 60000)  // tick every minute
-    return () => clearInterval(i)
-  }, [])
+    if (tab === 'upcoming' && upcoming === null && dbUser?.id) getUpcomingJobsForUser(dbUser.id, today).then(setUpcoming).catch(() => setUpcoming([]))
+    if (tab === 'unassigned' && unassigned === null && dbUser?.id && isSupervisor) getUnassignedJobsForSupervisor(dbUser.id, dbUser.department_id).then(setUnassigned).catch(() => setUnassigned([]))
+  }, [tab, upcoming, dbUser?.id]) // eslint-disable-line
+  useEffect(() => { const i = setInterval(() => setTick(t => t + 1), 60000); return () => clearInterval(i) }, [])
 
   const handleCheckIn = async (job) => {
     setBusyJobId(job.id); setError('')
-    try {
-      await checkInToJob(job.id, dbUser.id, { attendanceDate: today })
-      await load()
-    } catch (e) {
-      setError(e.message || 'Check-in failed')
-    } finally {
-      setBusyJobId(null)
-    }
+    try { await checkInToJob(job.id, dbUser.id, { attendanceDate: today }); await load() }
+    catch (e) { setError(e.message || 'Check-in failed') } finally { setBusyJobId(null) }
   }
-
   const handleCheckOut = async (job) => {
     if (!job.attendance?.id) return
     setBusyJobId(job.id); setError('')
-    try {
-      await checkOutOfJob(job.attendance.id)
-      await load()
-    } catch (e) {
-      setError(e.message || 'Check-out failed')
-    } finally {
-      setBusyJobId(null)
-    }
+    try { await checkOutOfJob(job.attendance.id); await load() }
+    catch (e) { setError(e.message || 'Check-out failed') } finally { setBusyJobId(null) }
   }
 
-  // Stats for the header strip
   const stats = useMemo(() => {
     const list = jobs || []
     const completed = list.filter(j => j.checkin_state === 'completed').length
     let totalMins = 0
     list.forEach(j => {
       const a = j.attendance
-      if (a?.checkin_at && a?.checkout_at) {
-        totalMins += Math.max(0, (new Date(a.checkout_at) - new Date(a.checkin_at)) / 60000)
-      } else if (a?.checkin_at) {
-        totalMins += Math.max(0, (Date.now() - new Date(a.checkin_at)) / 60000)
-      }
+      if (a?.checkin_at && a?.checkout_at) totalMins += Math.max(0, (new Date(a.checkout_at) - new Date(a.checkin_at)) / 60000)
+      else if (a?.checkin_at) totalMins += Math.max(0, (Date.now() - new Date(a.checkin_at)) / 60000)
     })
-    const h = Math.floor(totalMins / 60)
-    const m = Math.floor(totalMins % 60)
-    return { completed, total: list.length, hoursLabel: `${h}h ${m}m` }
+    return { completed, total: list.length, hoursLabel: `${Math.floor(totalMins / 60)}h ${Math.floor(totalMins % 60)}m` }
   }, [jobs, tick])
 
-  // The "active now" job — the one currently checked in
   const activeJob = (jobs || []).find(j => j.checkin_state === 'checked_in')
   const otherJobs = (jobs || []).filter(j => j.id !== activeJob?.id)
-
-  const greeting = dbUser?.user_name ? `Hello, ${dbUser.user_name}` : 'Hello'
   const dateLabel = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })
+  const Spinner = () => <div className="py-12"><LoadingSpinner /></div>
 
   return (
     <MainLayout title="My Day">
-    <div className="min-h-screen bg-hh-mint px-4 py-6 max-w-md mx-auto">
-      {/* Header */}
-      <div className="flex items-start justify-between mb-4">
-        <div>
-          <p className="text-sm text-hh-placeholder">{dateLabel}</p>
-          <h1 className="text-2xl font-bold text-hh-text">{greeting}</h1>
-        </div>
-        <button
-          onClick={() => setShowLeave(true)}
-          className="text-sm font-semibold text-hh-green border border-hh-green
-            rounded-full px-4 py-1.5 hover:bg-hh-green hover:text-white transition-colors"
-        >
-          Apply Leave
-        </button>
-      </div>
-
-      {/* Stats strip */}
-      <div className="bg-gray-900 rounded-2xl px-5 py-4 flex items-center mb-5">
-        <div className="flex-1">
-          <p className="text-[10px] tracking-widest text-gray-400 font-semibold">HOURS TODAY</p>
-          <p className="text-2xl font-bold text-white leading-tight">{stats.hoursLabel}</p>
-        </div>
-        <div className="w-px h-10 bg-gray-700 mx-4" />
-        <div className="flex-1">
-          <p className="text-[10px] tracking-widest text-gray-400 font-semibold">COMPLETED</p>
-          <p className="text-2xl font-bold text-white leading-tight">{stats.completed} / {stats.total}</p>
-        </div>
-      </div>
-
-      {/* Tabs */}
-      <div className="flex gap-6 border-b border-gray-200 mb-5">
-        {['today', 'upcoming', ...(isSupervisor ? ['unassigned'] : [])].map(t => (
-          <button key={t} onClick={() => setTab(t)}
-            className={`pb-2 text-sm font-semibold capitalize transition-colors
-              ${tab === t ? 'text-hh-text border-b-2 border-hh-green' : 'text-hh-placeholder'}`}>
-            {t}
-          </button>
-        ))}
-      </div>
-
-      {error && (
-        <div className="bg-red-50 text-hh-error text-sm rounded-hh px-3 py-2 mb-4">{error}</div>
-      )}
-
-      {tab === 'today' && jobs === null && (
-        <div className="flex justify-center py-12">
-          <span className="w-7 h-7 border-2 border-gray-300 border-t-hh-green rounded-full animate-spin" />
-        </div>
-      )}
-
-      {tab === 'today' && jobs !== null && jobs.length === 0 && (
-        <div className="text-center py-12 text-hh-placeholder">
-          <p className="text-sm">No jobs assigned for today.</p>
-        </div>
-      )}
-
-      {/* Active job — featured card */}
-      {tab === 'today' && activeJob && (
-        <FeaturedJobCard
-          job={activeJob}
-          busy={busyJobId === activeJob.id}
-          onCheckOut={() => handleCheckOut(activeJob)}
-          tick={tick}
-        />
-      )}
-
-      {/* Remaining jobs */}
-      {tab === 'today' && otherJobs.length > 0 && (
-        <>
-          <p className="text-[11px] tracking-widest text-hh-placeholder font-semibold mt-6 mb-3">
-            REMAINING TODAY
-          </p>
-          <div className="space-y-3">
-            {otherJobs.map(job => (
-              <CompactJobCard
-                key={job.id}
-                job={job}
-                busy={busyJobId === job.id}
-                onCheckIn={() => handleCheckIn(job)}
-                onCheckOut={() => handleCheckOut(job)}
-                onOpen={() => navigate(`${jobBasePath}/${job.id}`)}
-              />
-            ))}
+      <div className="mx-auto max-w-lg space-y-5">
+        {/* Header */}
+        <div className="flex items-start justify-between">
+          <div>
+            <p className="text-sm text-muted-foreground">{dateLabel}</p>
+            <h1 className="text-2xl font-bold tracking-tight text-foreground">{dbUser?.user_name ? `Hello, ${dbUser.user_name}` : 'Hello'}</h1>
           </div>
-        </>
-      )}
+          <Button variant="outline" size="sm" onClick={() => setShowLeave(true)}><CalendarPlus className="h-4 w-4" /> Apply Leave</Button>
+        </div>
 
-      {tab === 'upcoming' && (
-        <>
-          {upcoming === null && (
-            <div className="flex justify-center py-12">
-              <span className="w-7 h-7 border-2 border-gray-300 border-t-hh-green rounded-full animate-spin" />
-            </div>
-          )}
-          {upcoming !== null && upcoming.length === 0 && (
-            <div className="text-center py-12 text-hh-placeholder">
-              <p className="text-sm">No upcoming jobs scheduled.</p>
-            </div>
-          )}
-          {upcoming !== null && upcoming.length > 0 && (
-            <div className="space-y-3">
-              {upcoming.map(job => (
-                <UpcomingJobCard
-                  key={job.id}
-                  job={job}
-                  onOpen={() => navigate(`${jobBasePath}/${job.id}`)}
-                />
-              ))}
-            </div>
-          )}
-        </>
-      )}
+        {/* Stats hero */}
+        <div className="flex items-center rounded-2xl bg-slate-900 px-5 py-4 text-white">
+          <div className="flex-1">
+            <p className="text-[10px] font-semibold tracking-widest text-slate-400">HOURS TODAY</p>
+            <p className="text-2xl font-bold leading-tight">{stats.hoursLabel}</p>
+          </div>
+          <div className="mx-4 h-10 w-px bg-slate-700" />
+          <div className="flex-1">
+            <p className="text-[10px] font-semibold tracking-widest text-slate-400">COMPLETED</p>
+            <p className="text-2xl font-bold leading-tight">{stats.completed} / {stats.total}</p>
+          </div>
+        </div>
 
-      {tab === 'unassigned' && (
-        <>
-          {unassigned === null && (
-            <div className="flex justify-center py-12">
-              <span className="w-7 h-7 border-2 border-gray-300 border-t-hh-green rounded-full animate-spin" />
-            </div>
-          )}
-          {unassigned !== null && unassigned.length === 0 && (
-            <div className="text-center py-12 text-hh-placeholder">
-              <p className="text-sm">Nothing needs assignment right now.</p>
-            </div>
-          )}
-          {unassigned !== null && unassigned.length > 0 && (
-            <div className="space-y-3">
-              {unassigned.map(job => (
-                <button key={job.id}
-                  onClick={() => navigate(`${jobBasePath}/${job.id}`)}
-                  className="w-full text-left bg-white rounded-hh shadow-sm p-4 border-l-4 border-amber-400
-                    hover:shadow-md transition-shadow">
+        {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
+
+        <Tabs value={tab} onValueChange={setTab}>
+          <TabsList className="w-full">
+            <TabsTrigger value="today" className="flex-1">Today</TabsTrigger>
+            <TabsTrigger value="upcoming" className="flex-1">Upcoming</TabsTrigger>
+            {isSupervisor && <TabsTrigger value="unassigned" className="flex-1">Unassigned</TabsTrigger>}
+          </TabsList>
+
+          <TabsContent value="today" className="space-y-3">
+            {jobs === null ? <Spinner /> : jobs.length === 0 ? (
+              <p className="py-12 text-center text-sm text-muted-foreground">No jobs assigned for today.</p>
+            ) : (
+              <>
+                {activeJob && <FeaturedJobCard job={activeJob} busy={busyJobId === activeJob.id} onCheckOut={() => handleCheckOut(activeJob)} userId={dbUser?.id} />}
+                {otherJobs.length > 0 && (
+                  <>
+                    <p className="pt-2 text-[11px] font-semibold tracking-widest text-muted-foreground">REMAINING TODAY</p>
+                    {otherJobs.map(job => (
+                      <CompactJobCard key={job.id} job={job} busy={busyJobId === job.id}
+                        onCheckIn={() => handleCheckIn(job)} onCheckOut={() => handleCheckOut(job)}
+                        onOpen={() => navigate(`${jobBasePath}/${job.id}`)} />
+                    ))}
+                  </>
+                )}
+              </>
+            )}
+          </TabsContent>
+
+          <TabsContent value="upcoming" className="space-y-3">
+            {upcoming === null ? <Spinner /> : upcoming.length === 0 ? (
+              <p className="py-12 text-center text-sm text-muted-foreground">No upcoming jobs scheduled.</p>
+            ) : upcoming.map(job => <UpcomingJobCard key={job.id} job={job} onOpen={() => navigate(`${jobBasePath}/${job.id}`)} />)}
+          </TabsContent>
+
+          {isSupervisor && (
+            <TabsContent value="unassigned" className="space-y-3">
+              {unassigned === null ? <Spinner /> : unassigned.length === 0 ? (
+                <p className="py-12 text-center text-sm text-muted-foreground">Nothing needs assignment right now.</p>
+              ) : unassigned.map(job => (
+                <Card key={job.id} onClick={() => navigate(`${jobBasePath}/${job.id}`)}
+                  className="cursor-pointer border-l-4 border-l-warning p-4 transition-shadow hover:shadow-hh-lg">
                   <div className="flex items-center gap-2">
-                    <span className="text-hh-green font-semibold text-sm">{job.job_id}</span>
-                    <span className="font-semibold text-hh-text">{job.job_name}</span>
+                    <span className="text-sm font-semibold text-primary">{job.job_id}</span>
+                    <span className="font-semibold text-foreground">{job.job_name}</span>
                   </div>
-                  <p className="text-xs text-hh-placeholder mt-1">
-                    {job.job_category === 'frequent' ? 'Recurring' : 'One-time'}
-                    {' · '}
-                    Tap to assign
-                  </p>
-                </button>
+                  <p className="mt-1 text-xs text-muted-foreground">{job.job_category === 'frequent' ? 'Recurring' : 'One-time'} · Tap to assign</p>
+                </Card>
               ))}
-            </div>
+            </TabsContent>
           )}
-        </>
-      )}
-    </div>
-    {showLeave && (
-      <ApplyLeaveModal
-        userId={dbUser?.id}
-        onClose={() => setShowLeave(false)}
-        onSubmitted={() => setShowLeave(false)}
-      />
-    )}
+        </Tabs>
+      </div>
+
+      <ApplyLeaveModal open={showLeave} userId={dbUser?.id} onClose={() => setShowLeave(false)} onSubmitted={() => setShowLeave(false)} />
     </MainLayout>
   )
 }
 
-/* ── Featured (active now) card ── */
-function FeaturedJobCard({ job, busy, onCheckOut, tick }) {
+function FeaturedJobCard({ job, busy, onCheckOut, userId }) {
   const a = job.attendance
   return (
-    <div className="bg-white rounded-2xl shadow-hh overflow-hidden">
-      <div className="bg-gradient-to-br from-green-100 to-green-50 h-32 relative flex items-start p-3">
-        <span className="bg-hh-green text-white text-[11px] font-bold px-3 py-1 rounded-full flex items-center gap-1">
-          <span className="w-1.5 h-1.5 bg-white rounded-full" /> ACTIVE NOW
+    <Card className="overflow-hidden">
+      <div className="relative flex h-24 items-start bg-gradient-to-br from-primary/15 to-primary/5 p-3">
+        <span className="flex items-center gap-1.5 rounded-full bg-primary px-3 py-1 text-[11px] font-bold text-primary-foreground">
+          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" /> ACTIVE NOW
         </span>
       </div>
       <div className="p-4">
         <div className="flex items-start justify-between">
-          <h2 className="text-lg font-bold text-hh-text">{job.job_name}</h2>
-          <span className="text-hh-green text-sm font-semibold">{job.job_id}</span>
+          <h2 className="text-lg font-bold text-foreground">{job.job_name}</h2>
+          <span className="text-sm font-semibold text-primary">{job.job_id}</span>
         </div>
-        {job.job_location && (
-          <p className="text-sm text-hh-placeholder mt-1">📍 {job.job_location}</p>
-        )}
-
-        <div className="flex items-end justify-between mt-4">
+        {job.job_location && <p className="mt-1 flex items-center gap-1 text-sm text-muted-foreground"><MapPin className="h-3.5 w-3.5" /> {job.job_location}</p>}
+        <div className="mt-4 flex items-end justify-between">
           <div>
-            <span className="text-2xl font-bold text-hh-text">{fmtClock(job.job_start_time)}</span>
-            {job.job_end_time && <span className="text-hh-placeholder"> – {fmtClock(job.job_end_time)}</span>}
+            <span className="text-2xl font-bold text-foreground">{fmtClock(job.job_start_time)}</span>
+            {job.job_end_time && <span className="text-muted-foreground"> – {fmtClock(job.job_end_time)}</span>}
           </div>
           <div className="text-right">
-            <p className="text-[10px] tracking-widest text-hh-placeholder font-semibold">ON SITE</p>
-            <p className="text-hh-green font-bold">{elapsed(a?.checkin_at)}</p>
+            <p className="text-[10px] font-semibold tracking-widest text-muted-foreground">ON SITE</p>
+            <p className="font-bold text-primary">{elapsed(a?.checkin_at)}</p>
           </div>
         </div>
-
-        <button
-          onClick={onCheckOut}
-          disabled={busy}
-          className="w-full mt-4 bg-hh-error text-white font-bold text-lg py-4 rounded-xl
-            flex items-center justify-center gap-2 disabled:opacity-60 active:scale-[0.99] transition-transform"
-        >
-          {busy ? 'Saving…' : '◻  CHECK OUT'}
-        </button>
+        <Button onClick={onCheckOut} disabled={busy} variant="destructive" size="lg" className="mt-4 h-14 w-full text-base">
+          <LogOut className="h-5 w-5" /> {busy ? 'Saving…' : 'CHECK OUT'}
+        </Button>
         {a?.checkin_at && (
-          <p className="text-center text-xs text-hh-placeholder mt-2">
-            Checked in at <span className="text-hh-green font-semibold">{fmtTime(a.checkin_at)}</span>
-            {a.location_missing && <span className="text-hh-error"> · location off</span>}
+          <p className="mt-2 text-center text-xs text-muted-foreground">
+            Checked in at <span className="font-semibold text-primary">{fmtTime(a.checkin_at)}</span>
+            {a.location_missing && <span className="text-destructive"> · location off</span>}
           </p>
         )}
-      </div>
-    </div>
-  )
-}
-
-/* ── Upcoming card — read-only preview, tap to view full job details (read-only) ── */
-function UpcomingJobCard({ job, onOpen }) {
-  const fmtDate = (d) => {
-    if (!d) return ''
-    try {
-      return new Date(d + 'T00:00:00').toLocaleDateString(undefined,
-        { weekday: 'short', month: 'short', day: 'numeric' })
-    } catch { return d }
-  }
-  const daysLabel = {
-    weekdays_only: 'Weekdays',
-    weekends_only: 'Weekends',
-    weekdays_and_weekends: 'Every day',
-  }[job.job_days] || ''
-
-  return (
-    <div
-      onClick={onOpen}
-      role="button"
-      tabIndex={0}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onOpen() }}
-      className="bg-white rounded-xl shadow-sm p-3 flex items-center gap-3
-        cursor-pointer hover:shadow-md active:scale-[0.99] transition-all"
-    >
-      <div className="w-16 h-16 rounded-lg bg-gradient-to-br from-blue-50 to-green-50 shrink-0
-        flex items-center justify-center text-hh-green font-bold text-xs">
-        {job.job_id?.replace('JOB-', '#') || 'JOB'}
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center justify-between">
-          <h3 className="font-semibold text-hh-text truncate">{job.job_name}</h3>
-          <span className="text-xs text-hh-placeholder shrink-0 ml-2">
-            {fmtClock(job.job_start_time)}
-          </span>
+        <div className="mt-4 border-t border-border pt-3">
+          <p className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">Tasks</p>
+          <JobChecklist jobId={job.id} canManage={false} userId={userId} compact />
         </div>
-        {job.job_location && (
-          <p className="text-xs text-hh-placeholder truncate">{job.job_location}</p>
-        )}
-        <p className="text-xs text-hh-green font-medium mt-1">
-          {job.is_recurring
-            ? `${daysLabel} until ${fmtDate(job.upcoming_to)}`
-            : fmtDate(job.upcoming_from)}
-        </p>
       </div>
-      <span className="text-hh-placeholder shrink-0">›</span>
-    </div>
+    </Card>
   )
 }
+
+function UpcomingJobCard({ job, onOpen }) {
+  const fmtDate = (d) => { if (!d) return ''; try { return new Date(d + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) } catch { return d } }
+  const daysLabel = { weekdays_only: 'Weekdays', weekends_only: 'Weekends', weekdays_and_weekends: 'Every day' }[job.job_days] || ''
+  return (
+    <Card onClick={onOpen} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onOpen() }}
+      className="flex cursor-pointer items-center gap-3 p-3 transition-shadow hover:shadow-hh-lg">
+      <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-muted text-xs font-bold text-primary">{job.job_id?.replace('JOB-', '#') || 'JOB'}</div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center justify-between">
+          <h3 className="truncate font-semibold text-foreground">{job.job_name}</h3>
+          <span className="ml-2 shrink-0 text-xs text-muted-foreground">{fmtClock(job.job_start_time)}</span>
+        </div>
+        {job.job_location && <p className="truncate text-xs text-muted-foreground">{job.job_location}</p>}
+        <p className="mt-1 text-xs font-medium text-primary">{job.is_recurring ? `${daysLabel} until ${fmtDate(job.upcoming_to)}` : fmtDate(job.upcoming_from)}</p>
+      </div>
+      <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+    </Card>
+  )
+}
+
 function CompactJobCard({ job, busy, onCheckIn, onCheckOut, onOpen }) {
   const state = job.checkin_state
   return (
-    <div className="bg-white rounded-xl shadow-sm p-3 flex items-center gap-3">
-      <div className="w-16 h-16 rounded-lg bg-gradient-to-br from-green-100 to-green-50 shrink-0
-        flex items-center justify-center text-hh-green font-bold text-xs"
-        onClick={onOpen} role="button">
-        {job.job_id?.replace('JOB-', '#') || 'JOB'}
-      </div>
-      <div className="flex-1 min-w-0" onClick={onOpen} role="button">
+    <Card className="flex items-center gap-3 p-3">
+      <div onClick={onOpen} role="button" className="flex h-14 w-14 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-muted text-xs font-bold text-primary">{job.job_id?.replace('JOB-', '#') || 'JOB'}</div>
+      <div className="min-w-0 flex-1 cursor-pointer" onClick={onOpen} role="button">
         <div className="flex items-center justify-between">
-          <h3 className="font-semibold text-hh-text truncate">{job.job_name}</h3>
-          <span className="text-xs text-hh-placeholder shrink-0 ml-2">{fmtClock(job.job_start_time)}</span>
+          <h3 className="truncate font-semibold text-foreground">{job.job_name}</h3>
+          <span className="ml-2 shrink-0 text-xs text-muted-foreground">{fmtClock(job.job_start_time)}</span>
         </div>
-        {job.job_location && (
-          <p className="text-xs text-hh-placeholder truncate">{job.job_location}</p>
-        )}
-        <div className="mt-1">
+        {job.job_location && <p className="truncate text-xs text-muted-foreground">{job.job_location}</p>}
+        <div className="mt-1 flex items-center gap-1 text-xs">
           {state === 'completed'
-            ? <span className="text-xs text-hh-green font-semibold">✓ Done</span>
-            : <span className="text-xs text-hh-placeholder">Scheduled</span>}
+            ? <span className="font-semibold text-primary">✓ Done</span>
+            : <span className="text-muted-foreground"><Clock className="mr-0.5 inline h-3 w-3" />Scheduled</span>}
         </div>
       </div>
       {state === 'not_started' && (
-        <button onClick={(e) => { e.stopPropagation(); onCheckIn() }} disabled={busy}
-          className="bg-green-50 text-hh-green font-bold text-sm px-4 py-2 rounded-lg
-            shrink-0 disabled:opacity-60 active:scale-95 transition-transform">
+        <Button onClick={(e) => { e.stopPropagation(); onCheckIn() }} disabled={busy} variant="secondary" className="shrink-0 font-bold text-primary">
           {busy ? '…' : 'CHECK IN'}
-        </button>
+        </Button>
       )}
       {state === 'checked_in' && (
-        <button onClick={(e) => { e.stopPropagation(); onCheckOut() }} disabled={busy}
-          className="bg-hh-error text-white font-bold text-sm px-4 py-2 rounded-lg
-            shrink-0 disabled:opacity-60 active:scale-95 transition-transform">
+        <Button onClick={(e) => { e.stopPropagation(); onCheckOut() }} disabled={busy} variant="destructive" className="shrink-0 font-bold">
           {busy ? '…' : 'CHECK OUT'}
-        </button>
+        </Button>
       )}
-    </div>
+    </Card>
   )
 }
 
-/* ── Apply Leave modal — preset reasons, optional note, half/full day ── */
-function ApplyLeaveModal({ userId, onClose, onSubmitted }) {
+function ApplyLeaveModal({ open, userId, onClose, onSubmitted }) {
   const [leaveDate, setLeaveDate] = useState(new Date().toISOString().slice(0, 10))
   const [leaveToDate, setLeaveToDate] = useState(new Date().toISOString().slice(0, 10))
   const [duration, setDuration] = useState('full_day')
@@ -435,117 +274,73 @@ function ApplyLeaveModal({ userId, onClose, onSubmitted }) {
   const [err, setErr] = useState('')
 
   const isSingleDay = leaveToDate === leaveDate
-
-  const REASONS = [
-    { key: 'sick', label: 'Sick' },
-    { key: 'personal', label: 'Personal' },
-    { key: 'emergency', label: 'Emergency' },
-    { key: 'other', label: 'Other' },
-  ]
-  const DURATIONS = [
-    { key: 'full_day', label: 'Full Day' },
-    { key: 'first_half', label: 'Morning (8am–1pm)' },
-    { key: 'second_half', label: 'Afternoon (1pm–6pm)' },
-  ]
+  const REASONS = [{ key: 'sick', label: 'Sick' }, { key: 'personal', label: 'Personal' }, { key: 'emergency', label: 'Emergency' }, { key: 'other', label: 'Other' }]
+  const DURATIONS = [{ key: 'full_day', label: 'Full Day' }, { key: 'first_half', label: 'Morning (8am–1pm)' }, { key: 'second_half', label: 'Afternoon (1pm–6pm)' }]
 
   const submit = async () => {
     setSaving(true); setErr('')
     try {
-      await applyForLeave(userId, {
-        leaveDate,
-        leaveToDate,
-        duration: isSingleDay ? duration : 'full_day',
-        reason,
-        note,
-      })
+      await applyForLeave(userId, { leaveDate, leaveToDate, duration: isSingleDay ? duration : 'full_day', reason, note })
       onSubmitted()
-    } catch (e) {
-      setErr(e.message || 'Could not submit leave')
-      setSaving(false)
-    }
+    } catch (e) { setErr(e.message || 'Could not submit leave'); setSaving(false) }
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
-      onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm flex flex-col max-h-[90vh]"
-        onClick={e => e.stopPropagation()}>
-
-        {/* Header (fixed) */}
-        <div className="px-5 pt-5 pb-3 border-b border-gray-100 shrink-0">
-          <h2 className="text-lg font-bold text-hh-text">Apply for Leave</h2>
-        </div>
-
-        {/* Body (scrollable) */}
-        <div className="px-5 py-4 overflow-y-auto flex-1">
-          <div className="grid grid-cols-2 gap-3 mb-4">
-            <div>
-              <label className="block text-xs text-hh-placeholder mb-1">From</label>
-              <input type="date" value={leaveDate}
-                onChange={e => {
-                  setLeaveDate(e.target.value)
-                  if (leaveToDate < e.target.value) setLeaveToDate(e.target.value)
-                }}
-                className="form-cell px-3 py-2 text-sm w-full" />
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose() }}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto">
+        <DialogHeader><DialogTitle>Apply for leave</DialogTitle></DialogHeader>
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="lfrom">From</Label>
+              <Input id="lfrom" type="date" value={leaveDate} onChange={e => { setLeaveDate(e.target.value); if (leaveToDate < e.target.value) setLeaveToDate(e.target.value) }} />
             </div>
-            <div>
-              <label className="block text-xs text-hh-placeholder mb-1">To</label>
-              <input type="date" value={leaveToDate} min={leaveDate}
-                onChange={e => setLeaveToDate(e.target.value)}
-                className="form-cell px-3 py-2 text-sm w-full" />
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="lto">To</Label>
+              <Input id="lto" type="date" value={leaveToDate} min={leaveDate} onChange={e => setLeaveToDate(e.target.value)} />
             </div>
           </div>
 
-          <label className="block text-xs text-hh-placeholder mb-2">Reason</label>
-          <div className="grid grid-cols-2 gap-2 mb-4">
-            {REASONS.map(r => (
-              <button key={r.key} onClick={() => setReason(r.key)}
-                className={`px-3 py-3 rounded-xl border text-sm font-medium text-center
-                  transition-colors ${reason === r.key
-                    ? 'border-hh-green bg-green-50 text-hh-green'
-                    : 'border-gray-200 text-hh-text'}`}>
-                {r.label}
-              </button>
-            ))}
+          <div className="flex flex-col gap-2">
+            <Label>Reason</Label>
+            <div className="grid grid-cols-2 gap-2">
+              {REASONS.map(r => (
+                <button key={r.key} onClick={() => setReason(r.key)}
+                  className={cn('rounded-xl border px-3 py-3 text-sm font-medium transition-colors',
+                    reason === r.key ? 'border-primary bg-accent text-primary' : 'border-border text-foreground hover:bg-muted')}>
+                  {r.label}
+                </button>
+              ))}
+            </div>
           </div>
 
           {isSingleDay && (
-            <>
-              <label className="block text-xs text-hh-placeholder mb-2">Duration</label>
-              <div className="space-y-2 mb-4">
+            <div className="flex flex-col gap-2">
+              <Label>Duration</Label>
+              <div className="space-y-2">
                 {DURATIONS.map(d => (
                   <button key={d.key} onClick={() => setDuration(d.key)}
-                    className={`w-full text-left px-3 py-2.5 rounded-xl border text-sm font-medium
-                      transition-colors ${duration === d.key
-                        ? 'border-hh-green bg-green-50 text-hh-green'
-                        : 'border-gray-200 text-hh-text'}`}>
+                    className={cn('w-full rounded-xl border px-3 py-2.5 text-left text-sm font-medium transition-colors',
+                      duration === d.key ? 'border-primary bg-accent text-primary' : 'border-border text-foreground hover:bg-muted')}>
                     {d.label}
                   </button>
                 ))}
               </div>
-            </>
+            </div>
           )}
 
-          <label className="block text-xs text-hh-placeholder mb-1">Note (optional)</label>
-          <textarea value={note} onChange={e => setNote(e.target.value)}
-            placeholder="Add a note if needed"
-            className="form-cell px-3 py-2 text-sm w-full h-16 resize-none" />
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="lnote">Note (optional)</Label>
+            <Textarea id="lnote" value={note} onChange={e => setNote(e.target.value)} placeholder="Add a note if needed" className="min-h-[64px]" />
+          </div>
 
-          {err && <div className="bg-red-50 text-hh-error text-sm rounded-lg px-3 py-2 mt-3">{err}</div>}
+          {err && <Alert variant="destructive"><AlertDescription>{err}</AlertDescription></Alert>}
         </div>
-
-        {/* Footer (fixed, always visible) */}
-        <div className="px-5 py-4 border-t border-gray-100 flex gap-3 shrink-0">
-          <button onClick={onClose}
-            className="flex-1 py-3 text-sm font-medium text-hh-placeholder border border-gray-200 rounded-xl">
-            Cancel
-          </button>
-          <button onClick={submit} disabled={saving}
-            className="flex-1 bg-hh-green text-white font-bold py-3 rounded-xl disabled:opacity-50">
-            {saving ? 'Submitting…' : 'Submit'}
-          </button>
-        </div>
-      </div>
-    </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button onClick={submit} disabled={saving}>{saving ? 'Submitting…' : 'Submit'}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

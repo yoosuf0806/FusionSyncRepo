@@ -1,27 +1,37 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate, useParams, useLocation } from 'react-router-dom'
+import {
+  Plus, X, MessageSquare, Star, Paperclip, AlertTriangle, Check, ChevronRight,
+} from 'lucide-react'
 import MainLayout from '../../layouts/MainLayout'
 import { useAuth } from '../../contexts/AuthContext'
 import {
   getJobById, createJob, updateJob, updateJobStatus,
   saveInvoice, uploadInvoiceAttachment, upsertAssociatedUser, removeAssociatedUser,
-  getAttendanceForJob, getAttendanceForHelper, upsertAttendanceRow, updateAttendanceStatus,
   getJobMessages, postJobMessage, notifyHelpersAssignedToJob,
   autoCreateOrUpdateInvoice, checkWorkerAvailability,
-  getAvailableReplacementWorkers, createWorkerReplacement, getWorkerReplacementsForJob,
-  getJobWorkerStatuses,
+  getAvailableReplacementWorkers, createWorkerReplacement, getJobWorkerStatuses,
 } from '../../services/jobService'
 import { getJobSpecs, getQuestionsForSpec } from '../../services/jobSpecService'
 import { getDepartments } from '../../services/departmentService'
 import { getUsers } from '../../services/userService'
-import FormRow from '../../components/FormRow'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import ErrorBanner from '../../components/ErrorBanner'
 import ConfirmModal from '../../components/ConfirmModal'
+import JobChecklist from '../../components/JobChecklist'
 import { WORKFLOW_STAGES, JOB_STATUS_LABELS, getCompletedStages, canTransitionTo } from '../../constants/jobStatuses'
 import { jobsHubPath, jobDetailPath } from '../../constants/jobPaths'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import { Badge } from '@/components/ui/badge'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
+import { cn } from '@/lib/utils'
 
-const ATT_PAGE_SIZE = 10
+const JOB_CATEGORIES = { ONETIME: 'one-time', FREQUENT: 'frequent' }
 
 // ── User Picker Modal ──────────────────────────────────────────────────────
 function UserPickerModal({ roleFilter, departmentId, onSelect, onClose }) {
@@ -30,38 +40,29 @@ function UserPickerModal({ roleFilter, departmentId, onSelect, onClose }) {
   const [loading, setLoading] = useState(true)
   useEffect(() => {
     setLoading(true)
-    // Workers/supervisors are scoped to the job's department; helpees are not
-    // (they aren't department-bound).
     const deptFilter = (roleFilter === 'helper' || roleFilter === 'supervisor') ? departmentId : ''
-    getUsers({ search, userType: roleFilter, departmentId: deptFilter }).then(data => { setUsers(data); setLoading(false) })
-      .catch(() => setLoading(false))
+    getUsers({ search, userType: roleFilter, departmentId: deptFilter }).then(data => { setUsers(data); setLoading(false) }).catch(() => setLoading(false))
   }, [search, roleFilter, departmentId])
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
-      <div className="bg-white rounded-hh-xl shadow-hh-lg w-full max-w-2xl max-h-[80vh] flex flex-col">
-        <div className="flex items-center justify-between px-5 py-4 border-b">
-          <h3 className="font-semibold capitalize">Select {roleFilter}</h3>
-          <button onClick={onClose} className="btn-icon w-8 h-8 text-xl">✕</button>
-        </div>
-        <div className="px-5 py-3">
-          <input className="form-cell w-full outline-none text-sm" placeholder="Search users..."
-            value={search} onChange={e => setSearch(e.target.value)} />
-        </div>
-        <div className="flex-1 overflow-y-auto px-5 pb-4 space-y-2">
-          {loading ? <p className="text-sm text-hh-placeholder py-4 text-center">Loading...</p>
-            : users.length === 0 ? <p className="text-sm text-hh-placeholder py-4 text-center">No users found</p>
+    <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader><DialogTitle className="capitalize">Select {roleFilter}</DialogTitle></DialogHeader>
+        <Input placeholder="Search users…" value={search} onChange={e => setSearch(e.target.value)} />
+        <div className="max-h-[50vh] space-y-1.5 overflow-y-auto pr-1">
+          {loading ? <p className="py-4 text-center text-sm text-muted-foreground">Loading…</p>
+            : users.length === 0 ? <p className="py-4 text-center text-sm text-muted-foreground">No users found</p>
             : users.map(u => (
-              <div key={u.id} className="flex items-center justify-between p-3 rounded-hh bg-gray-50 hover:bg-hh-mint/20">
+              <div key={u.id} className="flex items-center justify-between rounded-lg border border-border p-3 hover:bg-muted">
                 <div>
-                  <p className="text-sm font-medium">{u.user_name}</p>
-                  <p className="text-xs text-hh-placeholder">{u.user_id} · {u.user_type}</p>
+                  <p className="text-sm font-medium text-foreground">{u.user_name}</p>
+                  <p className="text-xs text-muted-foreground">{u.user_id} · {u.user_type}</p>
                 </div>
-                <button onClick={() => onSelect(u)} className="btn-select px-4 text-sm">Select</button>
+                <Button variant="outline" size="sm" onClick={() => onSelect(u)}>Select</Button>
               </div>
             ))}
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -69,7 +70,7 @@ function UserPickerModal({ roleFilter, departmentId, onSelect, onClose }) {
 function InvoiceModal({ jobId, existing, onSave, onClose }) {
   const [form, setForm] = useState({
     invoice_amount: existing?.invoice_amount || '',
-    invoice_currency: existing?.invoice_currency || 'AUD',
+    invoice_currency: existing?.invoice_currency || 'LKR',
     invoice_date: existing?.invoice_date || '',
     invoice_status: existing?.invoice_status || 'draft',
     invoice_notes: existing?.invoice_notes || '',
@@ -78,104 +79,59 @@ function InvoiceModal({ jobId, existing, onSave, onClose }) {
   const [file, setFile] = useState(null)
   const [saving, setSaving] = useState(false)
   const [uploadProgress, setUploadProgress] = useState('')
-
   const ACCEPTED = '.pdf,.doc,.docx,.png,.jpg,.jpeg,.xls,.xlsx'
+  const setF = (k, v) => setForm(p => ({ ...p, [k]: v }))
 
   const handleSave = async () => {
     setSaving(true)
     try {
       let attachmentUrl = form.attachment_url
-      if (file) {
-        setUploadProgress('Uploading file...')
-        attachmentUrl = await uploadInvoiceAttachment(jobId, file)
-        setUploadProgress('')
-      }
+      if (file) { setUploadProgress('Uploading file…'); attachmentUrl = await uploadInvoiceAttachment(jobId, file); setUploadProgress('') }
       const payload = { ...form, attachment_url: attachmentUrl }
       await saveInvoice(jobId, payload)
       onSave(payload)
-    } catch (e) {
-      alert(e.message)
-      setUploadProgress('')
-    } finally {
-      setSaving(false)
-    }
+    } catch (e) { alert(e.message); setUploadProgress('') } finally { setSaving(false) }
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
-      <div className="bg-white rounded-hh-xl shadow-hh-lg w-full max-w-sm p-6 space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="font-semibold">Invoice Details</h3>
-          <button onClick={onClose} className="btn-icon w-8 h-8">✕</button>
+    <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader><DialogTitle>Invoice details</DialogTitle></DialogHeader>
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-col gap-1.5"><Label>Amount</Label><Input type="number" value={form.invoice_amount} onChange={e => setF('invoice_amount', e.target.value)} /></div>
+            <div className="flex flex-col gap-1.5"><Label>Currency</Label><Input value={form.invoice_currency} onChange={e => setF('invoice_currency', e.target.value)} /></div>
+            <div className="flex flex-col gap-1.5"><Label>Date</Label><Input type="date" value={form.invoice_date} onChange={e => setF('invoice_date', e.target.value)} /></div>
+            <div className="flex flex-col gap-1.5">
+              <Label>Status</Label>
+              <Select value={form.invoice_status} onValueChange={v => setF('invoice_status', v)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>{['draft', 'sent', 'paid', 'void'].map(s => <SelectItem key={s} value={s} className="capitalize">{s}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="flex flex-col gap-1.5"><Label>Notes</Label><Input value={form.invoice_notes} onChange={e => setF('invoice_notes', e.target.value)} /></div>
+          <div className="flex flex-col gap-1.5">
+            <Label>Attachment</Label>
+            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-input bg-card px-3 py-2.5 text-sm hover:bg-muted">
+              <Paperclip className="h-4 w-4 text-primary" />
+              <span className="truncate text-muted-foreground">{file ? file.name : (form.attachment_url ? 'Replace file' : 'Attach PDF, Word, Excel or image')}</span>
+              <input type="file" accept={ACCEPTED} className="hidden" onChange={e => setFile(e.target.files?.[0] || null)} />
+            </label>
+            {form.attachment_url && !file && <a href={form.attachment_url} target="_blank" rel="noreferrer" className="text-xs text-primary underline">View existing attachment ↗</a>}
+            {uploadProgress && <p className="text-xs text-muted-foreground">{uploadProgress}</p>}
+          </div>
         </div>
-        {[
-          { label: 'Amount', key: 'invoice_amount', type: 'number' },
-          { label: 'Currency', key: 'invoice_currency', type: 'text' },
-          { label: 'Date', key: 'invoice_date', type: 'date' },
-          { label: 'Notes', key: 'invoice_notes', type: 'text' },
-        ].map(({ label, key, type }) => (
-          <FormRow key={key} label={label} labelWidth="w-24">
-            <input type={type} className="form-cell flex-1 w-full outline-none text-sm"
-              value={form[key]} onChange={e => setForm(p => ({ ...p, [key]: e.target.value }))} />
-          </FormRow>
-        ))}
-        <FormRow label="Status" labelWidth="w-24">
-          <select className="form-cell flex-1 outline-none text-sm" value={form.invoice_status}
-            onChange={e => setForm(p => ({ ...p, invoice_status: e.target.value }))}>
-            {['draft','sent','paid','void'].map(s => <option key={s} value={s} className="capitalize">{s}</option>)}
-          </select>
-        </FormRow>
-
-        {/* Attachment upload */}
-        <div className="space-y-1">
-          <p className="text-xs font-medium text-hh-text">Attachment</p>
-          <label className="flex items-center gap-2 form-cell cursor-pointer hover:bg-hh-mint/30 transition-colors">
-            <svg className="w-4 h-4 text-hh-green flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-            </svg>
-            <span className="text-xs text-hh-placeholder truncate">
-              {file ? file.name : (form.attachment_url ? 'Replace file' : 'Click to attach (PDF, Word, Excel, Image)')}
-            </span>
-            <input type="file" accept={ACCEPTED} className="hidden"
-              onChange={e => setFile(e.target.files?.[0] || null)} />
-          </label>
-          {form.attachment_url && !file && (
-            <a href={form.attachment_url} target="_blank" rel="noreferrer"
-              className="text-xs text-hh-green underline block">
-              View existing attachment ↗
-            </a>
-          )}
-          {uploadProgress && <p className="text-xs text-hh-placeholder">{uploadProgress}</p>}
-        </div>
-
-        <div className="flex gap-2 pt-2">
-          <button onClick={handleSave} disabled={saving} className="btn-action px-6">{saving ? 'Saving...' : 'Save Invoice'}</button>
-          <button onClick={onClose} className="btn-filter">Cancel</button>
-        </div>
-      </div>
-    </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button onClick={handleSave} disabled={saving}>{saving ? 'Saving…' : 'Save invoice'}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
-// ── Reject Reason Modal ────────────────────────────────────────────────────
-function RejectModal({ onConfirm, onClose }) {
-  const [reason, setReason] = useState('')
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
-      <div className="bg-white rounded-hh-xl shadow-hh-lg w-full max-w-sm p-6 space-y-3">
-        <h3 className="font-semibold">Rejection Reason</h3>
-        <textarea className="form-cell w-full outline-none text-sm h-24 resize-none py-2"
-          value={reason} onChange={e => setReason(e.target.value)} placeholder="Enter reason..." />
-        <div className="flex gap-2">
-          <button onClick={() => onConfirm(reason)} className="btn-action px-6 bg-hh-error hover:bg-red-600">Reject</button>
-          <button onClick={onClose} className="btn-filter">Cancel</button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
+// ── Job Message Modal ──────────────────────────────────────────────────────
 function JobMessageModal({ jobId, open, onClose, authUser, authorRole }) {
   const [messages, setMessages] = useState([])
   const [text, setText] = useState('')
@@ -185,128 +141,75 @@ function JobMessageModal({ jobId, open, onClose, authUser, authorRole }) {
 
   useEffect(() => {
     if (!open || !jobId) return
-    setLoading(true)
-    setErr('')
-    getJobMessages(jobId)
-      .then(setMessages)
-      .catch(e => setErr(e.message))
-      .finally(() => setLoading(false))
+    setLoading(true); setErr('')
+    getJobMessages(jobId).then(setMessages).catch(e => setErr(e.message)).finally(() => setLoading(false))
   }, [open, jobId])
 
   const handlePost = async () => {
     if (!text.trim() || !authUser?.id) return
-    setPosting(true)
-    setErr('')
+    setPosting(true); setErr('')
     try {
-      await postJobMessage(jobId, text, {
-        authorUserId: authUser.id,
-        authorRole,
-        authorName: authUser.user_name,
-      })
-      setText('')
-      setMessages(await getJobMessages(jobId))
-    } catch (e) {
-      setErr(e.message)
-    } finally {
-      setPosting(false)
-    }
+      await postJobMessage(jobId, text, { authorUserId: authUser.id, authorRole, authorName: authUser.user_name })
+      setText(''); setMessages(await getJobMessages(jobId))
+    } catch (e) { setErr(e.message) } finally { setPosting(false) }
   }
 
-  if (!open) return null
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
-      <div className="bg-white rounded-hh-xl shadow-hh-lg w-full max-w-lg max-h-[85vh] flex flex-col">
-        <div className="flex items-center justify-between px-5 py-4 border-b">
-          <h3 className="font-semibold">Job message</h3>
-          <button type="button" onClick={onClose} className="btn-icon w-8 h-8">✕</button>
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose() }}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader><DialogTitle>Job message</DialogTitle></DialogHeader>
+        <div className="max-h-[45vh] min-h-[160px] space-y-3 overflow-y-auto pr-1">
+          {err && <p className="text-sm text-destructive">{err}</p>}
+          {loading ? <p className="py-6 text-center text-sm text-muted-foreground">Loading…</p>
+            : messages.length === 0 ? <p className="py-6 text-center text-sm text-muted-foreground">No messages yet.</p>
+            : messages.map(m => (
+              <div key={m.id} className="rounded-lg bg-muted px-3 py-2 text-sm">
+                <p className="mb-1 text-xs text-muted-foreground">{m.author_name || 'User'} · {m.created_at ? new Date(m.created_at).toLocaleString() : ''}</p>
+                <p className="whitespace-pre-wrap text-foreground">{m.body}</p>
+              </div>
+            ))}
         </div>
-        <div className="flex-1 overflow-y-auto px-5 py-3 space-y-3 min-h-[200px]">
-          {err && <p className="text-sm text-hh-error">{err}</p>}
-          {loading ? (
-            <p className="text-sm text-hh-placeholder text-center py-6">Loading…</p>
-          ) : messages.length === 0 ? (
-            <p className="text-sm text-hh-placeholder text-center py-6">No messages yet.</p>
-          ) : (
-            messages.map(m => {
-              const who = m.author_name || 'User'
-              const when = m.created_at ? new Date(m.created_at).toLocaleString() : ''
-              return (
-                <div key={m.id} className="rounded-hh bg-gray-50 px-3 py-2 text-sm">
-                  <p className="text-xs text-hh-placeholder mb-1">{who} · {when}</p>
-                  <p className="whitespace-pre-wrap text-hh-text">{m.body}</p>
-                </div>
-              )
-            })
-          )}
-        </div>
-        <div className="px-5 py-4 border-t space-y-2">
-          <textarea
-            className="form-cell w-full outline-none text-sm h-24 resize-none py-2"
-            placeholder="Write an update for the supervisor or helper…"
-            value={text}
-            onChange={e => setText(e.target.value)}
-          />
-          <div className="flex gap-2 justify-end">
-            <button type="button" onClick={onClose} className="btn-filter">Close</button>
-            <button
-              type="button"
-              onClick={handlePost}
-              disabled={posting || !text.trim()}
-              className="btn-action px-6 bg-hh-green hover:opacity-90 disabled:opacity-50"
-            >
-              {posting ? 'Posting…' : 'Post'}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
+        <Textarea placeholder="Write an update for the supervisor or helper…" value={text} onChange={e => setText(e.target.value)} />
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Close</Button>
+          <Button onClick={handlePost} disabled={posting || !text.trim()}>{posting ? 'Posting…' : 'Post'}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
-// ── Workflow Display ───────────────────────────────────────────────────────
+// ── Workflow stepper ───────────────────────────────────────────────────────
 function WorkflowDisplay({ status, associatedUsers }) {
   const completed = getCompletedStages(status, associatedUsers)
   return (
-    <div className="w-full overflow-x-auto py-2">
-      <div className="flex items-center gap-1 min-w-max">
-        {WORKFLOW_STAGES.map((stage, i) => {
-          const done = completed[stage.key]
-          return (
-            <div key={stage.key} className="flex items-center gap-1">
-              <div className={`flex flex-col items-center justify-center rounded-hh text-xs font-medium text-center w-20 h-11 px-1
-                ${done ? 'bg-hh-green text-white' : 'bg-gray-400 text-white'}`}>
-                {stage.label.map((l, j) => <span key={j}>{l}</span>)}
-              </div>
-              {i < WORKFLOW_STAGES.length - 1 && (
-                <svg className="w-4 h-4 flex-shrink-0 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
-                </svg>
-              )}
+    <div className="flex items-center gap-1 overflow-x-auto pb-1">
+      {WORKFLOW_STAGES.map((stage, i) => {
+        const done = completed[stage.key]
+        return (
+          <div key={stage.key} className="flex items-center gap-1">
+            <div className={cn('flex h-11 w-24 flex-col items-center justify-center rounded-lg px-1 text-center text-xs font-medium',
+              done ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground')}>
+              {stage.label.map((l, j) => <span key={j}>{l}</span>)}
             </div>
-          )
-        })}
-      </div>
+            {i < WORKFLOW_STAGES.length - 1 && <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />}
+          </div>
+        )
+      })}
     </div>
   )
 }
 
-// ── Attendance Status Badge ────────────────────────────────────────────────
-const ATT_STATUS_STYLES = {
-  pending_approval: 'bg-yellow-100 text-yellow-800',
-  approved:         'bg-green-100 text-green-800',
-  rejected:         'bg-red-100 text-red-800',
-  resubmitted:      'bg-blue-100 text-blue-800',
+function WorkerStatusTags({ status }) {
+  if (!status) return null
+  return (
+    <>
+      {status.onLeave && <Badge variant="warning">On Leave</Badge>}
+      {status.replaced && !status.onLeave && <Badge variant="destructive">Replaced</Badge>}
+      {status.isReplacement && <Badge variant="warning">Replacement{status.coveringFor ? ` for ${status.coveringFor}` : ''}</Badge>}
+    </>
+  )
 }
-const ATT_STATUS_LABELS = {
-  pending_approval: 'Pending',
-  approved:         'Approved',
-  rejected:         'Rejected',
-  resubmitted:      'Resubmitted',
-}
-
-// ── Main Component ──────────────────────────────────────────────────────────
-const JOB_CATEGORIES = { ONETIME: 'one-time', FREQUENT: 'frequent' }
 
 export default function JobForm() {
   const navigate = useNavigate()
@@ -322,14 +225,10 @@ export default function JobForm() {
   })
 
   const [form, setForm] = useState({
-    job_name: '', job_description: '', job_type_id: '',
-    job_notes: '',
-    // one-time fields
+    job_name: '', job_description: '', job_type_id: '', job_notes: '',
     job_date: '', job_start_time: '',
-    // frequent fields
     job_from_date: '', job_to_date: '', job_end_time: '',
     job_days: 'weekdays_and_weekends',
-    // shared
     job_location: '', job_requester_id: null, department_id: null,
     pricing_structure: 'daily',
   })
@@ -347,18 +246,14 @@ export default function JobForm() {
   const [helpee, setHelpee] = useState(null)
   const [helpers, setHelpers] = useState([])
   const [workerStatuses, setWorkerStatuses] = useState({})
-  const [pendingConflict, setPendingConflict] = useState(null) // { user, conflicts }
-  const [showAddChooser, setShowAddChooser] = useState(false)   // Additional vs Replacement
-  const [replacementFlow, setReplacementFlow] = useState(null)  // replacement modal state
+  const [pendingConflict, setPendingConflict] = useState(null)
+  const [showAddChooser, setShowAddChooser] = useState(false)
+  const [replacementFlow, setReplacementFlow] = useState(null)
   const ONGOING_STATUSES_JF = ['job_started', 'job_finished']
   const [supervisor, setSupervisor] = useState(null)
   const [associatedUsers, setAssociatedUsers] = useState([])
 
   const [invoice, setInvoice] = useState(null)
-  const [attendance, setAttendance] = useState([])
-  const [attPage, setAttPage] = useState(0)
-  const [rejectTarget, setRejectTarget] = useState(null)
-  const [savingAttRow, setSavingAttRow] = useState(null)
 
   const [loading, setLoading] = useState(isEdit)
   const [saving, setSaving] = useState(false)
@@ -377,25 +272,18 @@ export default function JobForm() {
   const canUseJobMessages = isAdmin || isSupervisor || isHelper
   const jobMessageAuthorRole = isAdmin ? 'admin' : isSupervisor ? 'supervisor' : 'helper'
 
-  // Redirect any wrong-prefix job URL to the role-canonical one (edit only)
   useEffect(() => {
     if (!role || !id || !isEdit) return
     const canonical = jobDetailPath(role, id)
-    if (location.pathname !== canonical) {
-      navigate(canonical, { replace: true })
-    }
+    if (location.pathname !== canonical) navigate(canonical, { replace: true })
   }, [role, id, isEdit, location.pathname, navigate])
 
-  // Helpee opening /admin/jobs/new → /helpee/jobs/new (keep frequent category in state)
   useEffect(() => {
     if (!role || isEdit) return
     if (location.pathname !== '/admin/jobs/new' && location.pathname !== '/admin/jobs/new/frequent') return
     if (role !== 'helpee') return
     const isFreq = location.pathname.includes('frequent')
-    navigate('/helpee/jobs/new', {
-      replace: true,
-      state: { ...location.state, ...(isFreq ? { category: 'frequent' } : {}) },
-    })
+    navigate('/helpee/jobs/new', { replace: true, state: { ...location.state, ...(isFreq ? { category: 'frequent' } : {}) } })
   }, [role, isEdit, location.pathname, navigate])
 
   useEffect(() => {
@@ -404,105 +292,39 @@ export default function JobForm() {
     if (!isEdit) setForm(prev => ({ ...prev, job_requester_id: authUser.id }))
   }, [authUser, isEdit])
 
-  // Helpee creating a job: they are always the helpee on the request
   useEffect(() => {
     if (!authUser || isEdit || !isHelpee) return
     setHelpee(authUser)
-    setAssociatedUsers(prev => [
-      ...prev.filter(a => a.role !== 'helpee'),
-      { role: 'helpee', users: authUser },
-    ])
+    setAssociatedUsers(prev => [...prev.filter(a => a.role !== 'helpee'), { role: 'helpee', users: authUser }])
   }, [authUser, isEdit, isHelpee])
 
-  // Supervisor creating a job: auto-assign themselves as supervisor
   useEffect(() => {
     if (!authUser || isEdit || !isSupervisor) return
     setSupervisor(authUser)
-    setAssociatedUsers(prev => {
-      if (prev.some(a => a.role === 'supervisor')) return prev
-      return [...prev, { role: 'supervisor', users: authUser }]
-    })
+    setAssociatedUsers(prev => prev.some(a => a.role === 'supervisor') ? prev : [...prev, { role: 'supervisor', users: authUser }])
   }, [authUser, isEdit, isSupervisor])
 
   useEffect(() => {
     getJobSpecs().then(setSpecs).catch(() => {})
     getDepartments().then(list => {
       setDepartments(list || [])
-      // For a NEW job created by a supervisor, auto-assign their department.
       if (!isEdit && isSupervisor && authUser?.department_id) {
         setForm(prev => prev.department_id ? prev : { ...prev, department_id: authUser.department_id })
       }
     }).catch(() => {})
-  }, [])
+  }, []) // eslint-disable-line
 
   const loadQuestions = useCallback(async (specId) => {
     if (!specId) { setQuestions([]); setAnswers([]); setSelectedSpec(null); return }
     try {
       const qs = await getQuestionsForSpec(specId)
       setQuestions(qs)
-      // Preserve answers already loaded from the job (edit / helpee / helper view)
-      setAnswers(prev => qs.map(q => {
-        const hit = prev.find(a => a.question_id === q.id)
-        return { question_id: q.id, answer_text: hit?.answer_text ?? '' }
-      }))
-      const spec = specs.find(s => s.id === specId)
-      setSelectedSpec(spec || null)
+      setAnswers(prev => qs.map(q => { const hit = prev.find(a => a.question_id === q.id); return { question_id: q.id, answer_text: hit?.answer_text ?? '' } }))
+      setSelectedSpec(specs.find(s => s.id === specId) || null)
     } catch { setQuestions([]) }
   }, [specs])
 
   useEffect(() => { loadQuestions(form.job_type_id) }, [form.job_type_id, loadQuestions])
-
-  // For helpers: generate blank UI rows for each date in the job range
-  // so they have something to fill in even before their first submission.
-  // These rows have no 'id' — they only get an id after the helper submits.
-  useEffect(() => {
-    // Generate placeholder rows for every date in the range so the table is
-    // always visible regardless of whether helpers have submitted yet.
-    // - Helper: gets editable rows with their own helper_id stamped
-    // - Admin/Supervisor/Helpee: gets read-only scaffold rows (no helper_id)
-    if (!isEdit || category !== JOB_CATEGORIES.FREQUENT) return
-    if (!form.job_from_date || !form.job_to_date) return
-
-    const start = new Date(form.job_from_date)
-    const end   = new Date(form.job_to_date)
-    const dates = []
-    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-      dates.push(d.toISOString().slice(0, 10))
-    }
-
-    setAttendance(prev => {
-      // For helpers: check existing by date (their rows keyed by date+helper)
-      // For others: check existing by date only
-      const existingDates = new Set(
-        isHelper
-          ? prev.filter(r => r.helper_id === authUser?.id || String(r.id||'').startsWith('temp_')).map(r => r.attendance_date)
-          : prev.map(r => r.attendance_date)
-      )
-      const newRows = dates
-        .filter(dt => !existingDates.has(dt))
-        .map(dt => ({
-          id: isHelper ? `temp_${dt}_${authUser?.id}` : `scaffold_${dt}`,
-          job_id: dbJobId,
-          attendance_date: dt,
-          helper_id: isHelper ? (authUser?.id || null) : null,
-          helper_name: isHelper ? (authUser?.user_name || null) : null,
-          check_in_time: '',
-          check_out_time: '',
-          remark: '',
-          att_status: null,
-          submitted_at: null,
-          total_hours: null,
-          rate_for_day: null,
-          job_start_time: form.job_start_time || null,
-          job_end_time: form.job_end_time || null,
-        }))
-      if (newRows.length === 0) return prev
-      return [...prev, ...newRows].sort((a, b) =>
-        (a.attendance_date || '').localeCompare(b.attendance_date || '')
-      )
-    })
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isEdit, category, form.job_from_date, form.job_to_date, authUser?.id, dbJobId])
 
   useEffect(() => {
     if (!isEdit) return
@@ -511,25 +333,16 @@ export default function JobForm() {
       const jc = catRaw === 'frequent' ? JOB_CATEGORIES.FREQUENT : JOB_CATEGORIES.ONETIME
       setCategory(jc)
       const spec = job.job_specifications
-      const typeName = spec && typeof spec === 'object' && !Array.isArray(spec)
-        ? spec.job_type_name
-        : (Array.isArray(spec) ? spec[0]?.job_type_name : '')
+      const typeName = spec && typeof spec === 'object' && !Array.isArray(spec) ? spec.job_type_name : (Array.isArray(spec) ? spec[0]?.job_type_name : '')
       setLoadedJobTypeName(typeName || '')
       setForm({
-        job_name: job.job_name || '',
-        job_description: job.job_description || '',
-        job_type_id: job.job_type_id || '',
-        job_notes: job.job_notes || '',
-        job_date: job.job_date || '',
-        job_start_time: job.job_start_time || '',
-        job_from_date: job.job_from_date || '',
-        job_to_date: job.job_to_date || '',
-        job_end_time: job.job_end_time || '',
-        job_days: job.job_days || 'weekdays_and_weekends',
-        job_location: job.job_location || '',
-        job_requester_id: job.job_requester_id,
-        department_id: job.department_id,
-        pricing_structure: job.pricing_structure || 'daily',
+        job_name: job.job_name || '', job_description: job.job_description || '',
+        job_type_id: job.job_type_id || '', job_notes: job.job_notes || '',
+        job_date: job.job_date || '', job_start_time: job.job_start_time || '',
+        job_from_date: job.job_from_date || '', job_to_date: job.job_to_date || '',
+        job_end_time: job.job_end_time || '', job_days: job.job_days || 'weekdays_and_weekends',
+        job_location: job.job_location || '', job_requester_id: job.job_requester_id,
+        department_id: job.department_id, pricing_structure: job.pricing_structure || 'daily',
       })
       setJobId(job.job_id || 'Auto-generated')
       setStatus(job.status || 'request_raised')
@@ -546,53 +359,16 @@ export default function JobForm() {
       setHelpers(assoc.filter(a => a.role === 'helper').map(a => a.users).filter(Boolean))
       setSupervisor(assoc.find(a => a.role === 'supervisor')?.users || null)
 
-      // Load per-worker status tags (on leave / replaced / replacement) — all roles
-      try {
-        const st = await getJobWorkerStatuses(job.id)
-        setWorkerStatuses(st || {})
-      } catch { /* tags are non-critical */ }
+      try { setWorkerStatuses(await getJobWorkerStatuses(job.id) || {}) } catch { /* non-critical */ }
 
-      prevHelperIdsRef.current = assoc
-        .filter(a => a.role === 'helper')
-        .map(a => a.users?.id)
-        .filter(Boolean)
-
+      prevHelperIdsRef.current = assoc.filter(a => a.role === 'helper').map(a => a.users?.id).filter(Boolean)
       if (job.invoice) setInvoice(job.invoice)
-
-      // Load attendance for frequent jobs — merge DB rows, don't overwrite scaffold rows
-      if (jc === JOB_CATEGORIES.FREQUENT) {
-        getAttendanceForJob(job.id).then(dbRows => {
-          setAttendance(prev => {
-            if (!dbRows || dbRows.length === 0) return prev
-            // Replace scaffold/temp rows with real DB rows where date matches,
-            // keep scaffold rows for dates that have no DB row yet
-            const dbByDate = {}
-            dbRows.forEach(r => {
-              const key = r.attendance_date
-              if (!dbByDate[key]) dbByDate[key] = []
-              dbByDate[key].push(r)
-            })
-            // Remove scaffold rows that now have real DB rows
-            const filtered = prev.filter(r =>
-              !String(r.id || '').startsWith('scaffold_') || !dbByDate[r.attendance_date]
-            )
-            // Add all DB rows that aren't already in state
-            const existingIds = new Set(filtered.map(r => r.id))
-            const toAdd = dbRows.filter(r => !existingIds.has(r.id))
-            return [...filtered, ...toAdd].sort((a, b) =>
-              (a.attendance_date || '').localeCompare(b.attendance_date || '')
-            )
-          })
-        }).catch(() => {})
-      }
-
       setLoading(false)
     }).catch(e => { setError(e.message); setLoading(false) })
   }, [id, isEdit])
 
   const setField = (key, val) => setForm(prev => ({ ...prev, [key]: val }))
   const setAnswer = (qId, val) => setAnswers(prev => prev.map(a => a.question_id === qId ? { ...a, answer_text: val } : a))
-  const setAttRow = (rowId, key, val) => setAttendance(prev => prev.map(r => r.id === rowId ? { ...r, [key]: val } : r))
 
   const openHelperPicker = () => {
     if (!form.department_id) { setError('Select a Department before assigning workers.'); return }
@@ -610,30 +386,15 @@ export default function JobForm() {
       setHelpee(user)
       setAssociatedUsers(prev => [...prev.filter(a => a.role !== 'helpee'), assocEntry])
     } else if (userPickerRole === 'helper') {
-      // Only add if not already in the list
       if (!helpers.find(h => h.id === user.id)) {
-        // Capacity check — warn (but allow override) on schedule conflicts
         try {
           const { conflicts } = await checkWorkerAvailability(user.id, {
-            job_category: category,
-            job_date: form.job_date,
-            job_from_date: form.job_from_date,
-            job_to_date: form.job_to_date,
-            job_days: form.job_days,
-            job_start_time: form.job_start_time,
-            job_end_time: form.job_end_time,
-            excludeJobId: dbJobId || null,
+            job_category: category, job_date: form.job_date, job_from_date: form.job_from_date,
+            job_to_date: form.job_to_date, job_days: form.job_days, job_start_time: form.job_start_time,
+            job_end_time: form.job_end_time, excludeJobId: dbJobId || null,
           })
-          if (conflicts && conflicts.length > 0) {
-            // Hold the add; show warning popup for confirm/cancel
-            setPendingConflict({ user, conflicts, assocEntry })
-            setUserPickerRole(null)
-            return
-          }
-        } catch (e) {
-          // Availability check is advisory — never block assignment on its failure
-          console.warn('Availability check failed:', e?.message || e)
-        }
+          if (conflicts && conflicts.length > 0) { setPendingConflict({ user, conflicts, assocEntry }); setUserPickerRole(null); return }
+        } catch (e) { console.warn('Availability check failed:', e?.message || e) }
         addHelperConfirmed(user, assocEntry)
       }
     } else if (userPickerRole === 'supervisor') {
@@ -647,14 +408,7 @@ export default function JobForm() {
     setHelpers(prev => prev.find(h => h.id === user.id) ? prev : [...prev, user])
     setAssociatedUsers(prev => [...prev, assocEntry])
   }
-
-  // Supervisor clicked OK on the conflict warning → assign anyway
-  const confirmConflictAssign = () => {
-    if (pendingConflict) {
-      addHelperConfirmed(pendingConflict.user, pendingConflict.assocEntry)
-      setPendingConflict(null)
-    }
-  }
+  const confirmConflictAssign = () => { if (pendingConflict) { addHelperConfirmed(pendingConflict.user, pendingConflict.assocEntry); setPendingConflict(null) } }
   const cancelConflictAssign = () => setPendingConflict(null)
 
   const removeHelper = async (userId) => {
@@ -670,11 +424,8 @@ export default function JobForm() {
     if (!form.department_id) { setError('Department is required'); return }
     if (category === JOB_CATEGORIES.ONETIME && !form.job_date) { setError('Job Date is required'); return }
     if (category === JOB_CATEGORIES.FREQUENT && (!form.job_from_date || !form.job_to_date)) { setError('Start and End Date are required'); return }
-    if (form.job_start_time && form.job_end_time && form.job_end_time <= form.job_start_time) {
-      setError('Job End Time must be after Job Start Time'); return
-    }
+    if (form.job_start_time && form.job_end_time && form.job_end_time <= form.job_start_time) { setError('Job End Time must be after Job Start Time'); return }
 
-    // ── Associated-user validation (new jobs only) ─────────────────
     if (!isEdit) {
       if (isSupervisor || isAdmin) {
         if (!helpee) { setError('Please select a Helpee for this job.'); return }
@@ -683,830 +434,478 @@ export default function JobForm() {
       if (isAdmin && !supervisor) { setError('Please assign a Supervisor to this job.'); return }
     }
 
-    setSaving(true)
-    setError('')
+    setSaving(true); setError('')
     try {
-      const assocUsers = {
-        helpee_id: helpee?.id,
-        helper_ids: helpers.map(h => h.id),
-        supervisor_id: supervisor?.id,
-      }
+      const assocUsers = { helpee_id: helpee?.id, helper_ids: helpers.map(h => h.id), supervisor_id: supervisor?.id }
       if (isEdit) {
         const prevHelpers = prevHelperIdsRef.current
         await updateJob(dbJobId, { ...form, job_category: category }, answers)
         if (helpee) await upsertAssociatedUser(dbJobId, helpee.id, 'helpee')
         for (const h of helpers) await upsertAssociatedUser(dbJobId, h.id, 'helper')
         if (supervisor) await upsertAssociatedUser(dbJobId, supervisor.id, 'supervisor')
-        const newHelperIds = helpers.map(h => h.id).filter(id => !prevHelpers.includes(id))
-        if (canManage && newHelperIds.length > 0) {
-          await notifyHelpersAssignedToJob(dbJobId, newHelperIds, form.job_name)
-        }
-        // Auto-calculate invoice based on updated schedule/workers
+        const newHelperIds = helpers.map(h => h.id).filter(hid => !prevHelpers.includes(hid))
+        if (canManage && newHelperIds.length > 0) await notifyHelpersAssignedToJob(dbJobId, newHelperIds, form.job_name)
         await autoCreateOrUpdateInvoice(dbJobId)
-        // Auto-advance job status when supervisor or helpers are first assigned
         if (canManage) {
           let nextStatus = null
           const hasSupervisor = !!supervisor
           const hasHelpers = helpers.length > 0
-          if (hasHelpers && ['request_raised', 'manager_assigned'].includes(status)) {
-            nextStatus = 'helper_assigned'
-          } else if (hasSupervisor && status === 'request_raised') {
-            nextStatus = 'manager_assigned'
-          }
-          if (nextStatus) {
-            await updateJobStatus(dbJobId, nextStatus)
-            setStatus(nextStatus)
-          }
+          if (hasHelpers && ['request_raised', 'manager_assigned'].includes(status)) nextStatus = 'helper_assigned'
+          else if (hasSupervisor && status === 'request_raised') nextStatus = 'manager_assigned'
+          if (nextStatus) { await updateJobStatus(dbJobId, nextStatus); setStatus(nextStatus) }
         }
         prevHelperIdsRef.current = helpers.map(h => h.id)
       } else {
         const result = await createJob({ ...form, job_category: category }, answers, assocUsers, role)
-        // Auto-calculate invoice based on job schedule and assigned workers
-        if (result && result.id) {
-          await autoCreateOrUpdateInvoice(result.id)
-        }
+        if (result && result.id) await autoCreateOrUpdateInvoice(result.id)
       }
       navigate(jobsHubPath(role))
-    } catch (e) {
-      setError(e.message)
-    } finally {
-      setSaving(false)
-    }
+    } catch (e) { setError(e.message) } finally { setSaving(false) }
   }
 
   const handleStatusAction = async (newStatus) => {
-    try {
-      await updateJobStatus(dbJobId, newStatus)
-      setStatus(newStatus)
-    } catch (e) { setError(e.message) }
+    try { await updateJobStatus(dbJobId, newStatus); setStatus(newStatus) }
+    catch (e) { setError(e.message) }
     setStatusConfirm(null)
   }
 
-  // Attendance: submit a row (set check-in/out → pending_approval)
-  const handleSubmitRow = async (row) => {
-    if (!row.check_in_time || !row.check_out_time) { setError('Check In and Check Out times are required'); return }
-    setSavingAttRow(row.id)
-    try {
-      // Strip temp_/scaffold_ prefixed IDs — these are UI-only placeholders
-      const dbId = row.id && (String(row.id).startsWith('temp_') || String(row.id).startsWith('scaffold_')) ? null : row.id
-      const updated = await upsertAttendanceRow(dbJobId, {
-        id: dbId,
-        attendance_date: row.attendance_date,
-        check_in_time: row.check_in_time,
-        check_out_time: row.check_out_time,
-        remark: row.remark || null,
-        att_status: 'pending_approval',
-        submitted_at: new Date().toISOString(),
-        resubmitted_at: row.att_status === 'rejected' ? new Date().toISOString() : null,
-        // Stamp which helper submitted this row (required for unique constraint)
-        helper_id: authUser?.id || row.helper_id || null,
-      })
-      setAttendance(prev => {
-        // Replace temp row (matched by date+helper) or update existing DB row by id
-        const hasTempRow = prev.some(r =>
-          String(r.id || '').startsWith('temp_') &&
-          r.attendance_date === updated.attendance_date
-        )
-        if (hasTempRow) {
-          return prev.map(r =>
-            String(r.id || '').startsWith('temp_') && r.attendance_date === updated.attendance_date
-              ? { ...r, ...updated }
-              : r
-          )
-        }
-        const exists = prev.some(r => r.id === updated.id)
-        if (exists) return prev.map(r => r.id === updated.id ? { ...r, ...updated } : r)
-        return [...prev, updated]
-      })
-    } catch (e) { setError(e.message) } finally { setSavingAttRow(null) }
-  }
-
-  const handleApproveRow = async (row) => {
-    setSavingAttRow(row.id)
-    try {
-      const updated = await updateAttendanceStatus(row.id, 'approved', null)
-      setAttendance(prev => prev.map(r => r.id === row.id ? { ...r, ...updated } : r))
-    } catch (e) { setError(e.message) } finally { setSavingAttRow(null) }
-  }
-
-  const handleRejectRow = async (row, reason) => {
-    setSavingAttRow(row.id)
-    try {
-      const updated = await updateAttendanceStatus(row.id, 'rejected', reason)
-      setAttendance(prev => prev.map(r => r.id === row.id ? { ...r, ...updated } : r))
-    } catch (e) { setError(e.message) } finally { setSavingAttRow(null); setRejectTarget(null) }
-  }
-
   const isFrequent = category === JOB_CATEGORIES.FREQUENT
-  const isJobFieldsReadOnly = (isHelpee || isHelper) && isEdit
-  const jobTitle = isFrequent ? 'Job (Frequent Job)' : 'Job (One-Time Job)'
-  const inputClass = 'form-cell flex-1 w-full outline-none text-sm'
-  const isHourly = form.pricing_structure === 'hourly'
+  const readOnly = (isHelpee || isHelper) && isEdit
+  const jobTitle = isEdit ? (isFrequent ? 'Job — Recurring' : 'Job — One-time') : (isFrequent ? 'New Recurring Job' : 'New One-time Job')
 
-  // Attendance pagination
-  // Helpee only sees approved rows — other roles see all rows
-  const visibleAttendance = isHelpee
-    ? attendance.filter(r => r.att_status === 'approved')
-    : attendance
-  const attPages = Math.ceil(visibleAttendance.length / ATT_PAGE_SIZE)
-  const attSlice = visibleAttendance.slice(attPage * ATT_PAGE_SIZE, (attPage + 1) * ATT_PAGE_SIZE)
-
-  // Monthly total (current month, exclude rejected)
-  const now = new Date()
-  const monthlyTotal = attendance.reduce((sum, row) => {
-    const d = new Date(row.attendance_date)
-    if (d.getMonth() !== now.getMonth() || d.getFullYear() !== now.getFullYear()) return sum
-    if (row.att_status === 'rejected') return sum
-    return sum + (parseFloat(row.rate_for_day) || 0)
-  }, 0)
+  const statusActions = [
+    { label: 'Job Started', newStatus: 'job_started' },
+    { label: 'Job Finished', newStatus: 'job_finished' },
+    ...(canManage ? [{ label: 'Payment Confirmed', newStatus: 'payment_confirmed' }, { label: 'Job Close', newStatus: 'job_closed' }] : []),
+  ]
+  const nextAllowed = statusActions.find(a => canTransitionTo(status, a.newStatus))?.newStatus
 
   if (loading) return <MainLayout title={jobTitle}><LoadingSpinner /></MainLayout>
 
+  const requesterName = dbUser?.user_name || 'Current User'
+
   return (
     <MainLayout title={jobTitle}>
-      <div className="max-w-4xl mx-auto space-y-6">
+      <div className="mx-auto max-w-4xl space-y-6">
         {error && <ErrorBanner message={error} onClose={() => setError('')} />}
 
-        {/* ── JOB DETAILS ─────────────────────────── */}
-        <section>
-          <h2 className="font-semibold text-base mb-3">Job Details</h2>
-          <div className={`grid gap-3 ${isFrequent ? 'grid-cols-2' : 'grid-cols-1 max-w-xl'}`}>
-            <div className="space-y-2">
-              <FormRow label="Job ID" labelWidth="w-40">
-                <div className="form-cell flex-1 text-sm text-hh-placeholder">{jobId}</div>
-              </FormRow>
-              <FormRow label="Job Schedule" labelWidth="w-40">
-                <div className="form-cell flex-1 text-sm">
-                  {isFrequent ? 'Recurring' : 'One-time'}
-                </div>
-              </FormRow>
+        {/* Job details */}
+        <Card>
+          <CardHeader><CardTitle>Job details</CardTitle></CardHeader>
+          <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <Field label="Job ID"><Input value={jobId} disabled /></Field>
+            <Field label="Schedule"><Input value={isFrequent ? 'Recurring' : 'One-time'} disabled /></Field>
 
-              <FormRow label="Service" labelWidth="w-40">
-                {isJobFieldsReadOnly ? (
-                  <div className="form-cell flex-1 text-sm">
-                    {loadedJobTypeName || selectedSpec?.job_type_name || specs.find(s => s.id === form.job_type_id)?.job_type_name || '—'}
-                  </div>
-                ) : (
-                  <select className={inputClass} value={form.job_type_id}
-                    onChange={e => setField('job_type_id', e.target.value)}>
-                    <option value="">-- Select Service --</option>
-                    {specs.map(s => <option key={s.id} value={s.id}>{s.job_type_name}</option>)}
-                  </select>
-                )}
-              </FormRow>
+            <Field label="Service">
+              {readOnly
+                ? <Input value={loadedJobTypeName || selectedSpec?.job_type_name || specs.find(s => s.id === form.job_type_id)?.job_type_name || '—'} disabled />
+                : <Select value={form.job_type_id || undefined} onValueChange={v => setField('job_type_id', v)}>
+                    <SelectTrigger><SelectValue placeholder="-- Select service --" /></SelectTrigger>
+                    <SelectContent>{specs.map(s => <SelectItem key={s.id} value={s.id}>{s.job_type_name}</SelectItem>)}</SelectContent>
+                  </Select>}
+            </Field>
 
-              <FormRow label="Department" labelWidth="w-40">
-                {isJobFieldsReadOnly || isSupervisor ? (
-                  <div className="form-cell flex-1 text-sm">
-                    {departments.find(d => d.id === form.department_id)?.department_name || '—'}
-                  </div>
-                ) : (
-                  <select className={inputClass} value={form.department_id || ''}
-                    onChange={e => setField('department_id', e.target.value)}>
-                    <option value="">-- Select Department --</option>
-                    {departments.map(d => (
-                      <option key={d.id} value={d.id}>{d.department_name}</option>
-                    ))}
-                  </select>
-                )}
-              </FormRow>
+            <Field label="Department">
+              {readOnly || isSupervisor
+                ? <Input value={departments.find(d => d.id === form.department_id)?.department_name || '—'} disabled />
+                : <Select value={form.department_id || undefined} onValueChange={v => setField('department_id', v)}>
+                    <SelectTrigger><SelectValue placeholder="-- Select department --" /></SelectTrigger>
+                    <SelectContent>{departments.map(d => <SelectItem key={d.id} value={d.id}>{d.department_name}</SelectItem>)}</SelectContent>
+                  </Select>}
+            </Field>
 
-              <FormRow label="Job Name" labelWidth="w-40">
-                <input className={inputClass} value={form.job_name}
-                  onChange={e => setField('job_name', e.target.value)} placeholder="Job Name" readOnly={isJobFieldsReadOnly} />
-              </FormRow>
-              <FormRow label="Job Description" labelWidth="w-40">
-                <textarea className="form-cell flex-1 w-full outline-none text-sm h-16 resize-none py-2"
-                  value={form.job_description} onChange={e => setField('job_description', e.target.value)}
-                  placeholder="Description" readOnly={isJobFieldsReadOnly} />
-              </FormRow>
+            <Field label="Job name" className="md:col-span-2">
+              <Input value={form.job_name} onChange={e => setField('job_name', e.target.value)} placeholder="Job name" readOnly={readOnly} />
+            </Field>
+            <Field label="Description" className="md:col-span-2">
+              <Textarea value={form.job_description} onChange={e => setField('job_description', e.target.value)} placeholder="Description" readOnly={readOnly} className="min-h-[64px]" />
+            </Field>
 
-              {/* Frequent: show date range in first column so dates are always visible */}
-              {isFrequent && (
-                <>
-                  <FormRow label="Start Date" labelWidth="w-40">
-                    <input type="date" className={inputClass} value={form.job_from_date}
-                      onChange={e => setField('job_from_date', e.target.value)} readOnly={isJobFieldsReadOnly} />
-                  </FormRow>
-                  <FormRow label="End Date" labelWidth="w-40">
-                    <input type="date" className={inputClass} value={form.job_to_date}
-                      onChange={e => setField('job_to_date', e.target.value)} readOnly={isJobFieldsReadOnly} />
-                  </FormRow>
-                </>
-              )}
-
-              {/* ── ONE-TIME: single date + time ── */}
-              {!isFrequent && (
-                <>
-                  <FormRow label="Job Date" labelWidth="w-40">
-                    <input type="date" className={inputClass} value={form.job_date}
-                      onChange={e => setField('job_date', e.target.value)} readOnly={isJobFieldsReadOnly} />
-                  </FormRow>
-                  <FormRow label="Job Start Time" labelWidth="w-40">
-                    <input type="time" className={inputClass} value={form.job_start_time}
-                      onChange={e => setField('job_start_time', e.target.value)} readOnly={isJobFieldsReadOnly} />
-                  </FormRow>
-                  <FormRow label="Job End Time" labelWidth="w-40">
-                    <input type="time" className={inputClass} value={form.job_end_time}
-                      onChange={e => setField('job_end_time', e.target.value)} readOnly={isJobFieldsReadOnly} />
-                  </FormRow>
-                  <FormRow label="Job Location" labelWidth="w-40">
-                    <input className={inputClass} value={form.job_location}
-                      onChange={e => setField('job_location', e.target.value)} placeholder="Location" readOnly={isJobFieldsReadOnly} />
-                  </FormRow>
-                  <FormRow label="Job Requester" labelWidth="w-40">
-                    <div className="form-cell flex-1 text-sm text-hh-placeholder">{dbUser?.user_name || 'Current User'}</div>
-                  </FormRow>
-                </>
-              )}
-            </div>
-
-            {/* ── FREQUENT: date range + times + pricing ── */}
-            {isFrequent && (
-              <div className="space-y-2">
-                <FormRow label="Job Start Time" labelWidth="w-40">
-                  <input type="time" className={inputClass} value={form.job_start_time}
-                    onChange={e => setField('job_start_time', e.target.value)} readOnly={isJobFieldsReadOnly} />
-                </FormRow>
-                <FormRow label="Job End Time" labelWidth="w-40">
-                  <input type="time" className={inputClass} value={form.job_end_time}
-                    onChange={e => setField('job_end_time', e.target.value)} readOnly={isJobFieldsReadOnly} />
-                </FormRow>
-                <FormRow label="Job Days" labelWidth="w-40">
-                  <select className={inputClass} value={form.job_days}
-                    onChange={e => setField('job_days', e.target.value)} disabled={isJobFieldsReadOnly}>
-                    <option value="weekdays_only">Weekdays Only (Mon-Fri)</option>
-                    <option value="weekends_only">Weekends Only (Sat-Sun)</option>
-                    <option value="weekdays_and_weekends">Weekdays and Weekends (All Days)</option>
-                  </select>
-                </FormRow>
-                <FormRow label="Job Location" labelWidth="w-40">
-                  <input className={inputClass} value={form.job_location}
-                    onChange={e => setField('job_location', e.target.value)} placeholder="Location" readOnly={isJobFieldsReadOnly} />
-                </FormRow>
-                <FormRow label="Job Requester" labelWidth="w-40">
-                  <div className="form-cell flex-1 text-sm text-hh-placeholder">{dbUser?.user_name || 'Current User'}</div>
-                </FormRow>
-
-                {/* Pricing Structure — Admin/Supervisor only */}
+            {isFrequent ? (
+              <>
+                <Field label="Start date"><Input type="date" value={form.job_from_date} onChange={e => setField('job_from_date', e.target.value)} readOnly={readOnly} /></Field>
+                <Field label="End date"><Input type="date" value={form.job_to_date} onChange={e => setField('job_to_date', e.target.value)} readOnly={readOnly} /></Field>
+                <Field label="Start time"><Input type="time" value={form.job_start_time} onChange={e => setField('job_start_time', e.target.value)} readOnly={readOnly} /></Field>
+                <Field label="End time"><Input type="time" value={form.job_end_time} onChange={e => setField('job_end_time', e.target.value)} readOnly={readOnly} /></Field>
+                <Field label="Job days">
+                  <Select value={form.job_days} onValueChange={v => setField('job_days', v)} disabled={readOnly}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="weekdays_only">Weekdays Only (Mon–Fri)</SelectItem>
+                      <SelectItem value="weekends_only">Weekends Only (Sat–Sun)</SelectItem>
+                      <SelectItem value="weekdays_and_weekends">Weekdays and Weekends</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <Field label="Location"><Input value={form.job_location} onChange={e => setField('job_location', e.target.value)} placeholder="Location" readOnly={readOnly} /></Field>
                 {canManage && (
-                  <FormRow label="Pricing Structure" labelWidth="w-40">
-                    <div className="flex gap-3 items-center flex-1">
+                  <Field label="Pricing" className="md:col-span-2">
+                    <div className="flex gap-2">
                       {[{ val: 'daily', label: 'Daily Rate' }, { val: 'hourly', label: 'Hourly Rate' }].map(opt => (
-                        <button
-                          key={opt.val}
-                          type="button"
-                          onClick={() => !isJobFieldsReadOnly && setField('pricing_structure', opt.val)}
-                          className={`px-4 py-1.5 rounded-hh text-sm font-medium border-2 transition-colors
-                            ${form.pricing_structure === opt.val
-                              ? 'bg-hh-green text-white border-hh-green'
-                              : 'bg-white text-hh-text border-gray-300 hover:border-hh-green'}`}
-                        >
-                          {opt.label}
-                        </button>
+                        <Button key={opt.val} type="button" variant={form.pricing_structure === opt.val ? 'default' : 'outline'}
+                          onClick={() => !readOnly && setField('pricing_structure', opt.val)}>{opt.label}</Button>
                       ))}
                     </div>
-                  </FormRow>
+                  </Field>
                 )}
-              </div>
+              </>
+            ) : (
+              <>
+                <Field label="Job date"><Input type="date" value={form.job_date} onChange={e => setField('job_date', e.target.value)} readOnly={readOnly} /></Field>
+                <Field label="Start time"><Input type="time" value={form.job_start_time} onChange={e => setField('job_start_time', e.target.value)} readOnly={readOnly} /></Field>
+                <Field label="End time"><Input type="time" value={form.job_end_time} onChange={e => setField('job_end_time', e.target.value)} readOnly={readOnly} /></Field>
+                <Field label="Location"><Input value={form.job_location} onChange={e => setField('job_location', e.target.value)} placeholder="Location" readOnly={readOnly} /></Field>
+              </>
             )}
-          </div>
 
-          <div className="mt-4"></div>
-          <FormRow label="Remark / notes" labelWidth="w-40">
-            <textarea className="form-cell flex-1 w-full outline-none text-sm h-20 resize-none py-2 mt-1"
-              value={form.job_notes}
-              onChange={e => setField('job_notes', e.target.value)}
-              placeholder="Optional notes visible to everyone on this job (e.g. access instructions)"
-              readOnly={!canManage} />
-          </FormRow>
-        </section>
+            <Field label="Requester"><Input value={requesterName} disabled /></Field>
+            <Field label="Remark / notes" className="md:col-span-2">
+              <Textarea value={form.job_notes} onChange={e => setField('job_notes', e.target.value)}
+                placeholder="Optional notes visible to everyone on this job (e.g. access instructions)" readOnly={!canManage} className="min-h-[64px]" />
+            </Field>
+          </CardContent>
+        </Card>
 
-        {/* ── JOB SPECIFIC QUESTIONS ────────────────── */}
+        {/* Questions */}
         {questions.length > 0 && (
-          <section>
-            <h2 className="font-semibold text-base mb-3">Job Specific Questions</h2>
-            <div className="space-y-2">
+          <Card>
+            <CardHeader><CardTitle>Job-specific questions</CardTitle></CardHeader>
+            <CardContent className="space-y-4">
               {questions.map((q, i) => (
-                <FormRow key={q.id} label={q.question_text} labelWidth="w-48">
-                  <input className={inputClass} value={answers[i]?.answer_text || ''}
-                    onChange={e => setAnswer(q.id, e.target.value)} placeholder="Enter Answer" readOnly={isJobFieldsReadOnly} />
-                </FormRow>
+                <Field key={q.id} label={q.question_text}>
+                  <Input value={answers[i]?.answer_text || ''} onChange={e => setAnswer(q.id, e.target.value)} placeholder="Enter answer" readOnly={readOnly} />
+                </Field>
               ))}
-            </div>
-          </section>
+            </CardContent>
+          </Card>
         )}
 
-        {/* ── ASSOCIATED USERS + INVOICE ─────────────── */}
-        <div className={`grid gap-6 ${(canManage || (isEdit && invoice && (isHelpee || isHelper))) ? 'grid-cols-2' : 'grid-cols-1'}`}>
-          <section>
-            <h2 className="font-semibold text-base mb-3">Job Associated Users</h2>
-            <div className="space-y-2">
+        {/* Associated users + invoice */}
+        <div className={cn('grid gap-6', (canManage || (isEdit && invoice && (isHelpee || isHelper))) ? 'md:grid-cols-2' : 'grid-cols-1')}>
+          <Card>
+            <CardHeader><CardTitle>Associated users</CardTitle></CardHeader>
+            <CardContent className="space-y-3">
               {/* Helpee */}
-              <div className="flex gap-2 items-center">
-                <div className="form-label w-28 capitalize flex-shrink-0">Helpee</div>
-                <div className="form-cell flex-1 text-sm">
-                  {helpee ? helpee.user_name : <span className="text-hh-placeholder">Helpee Name</span>}
-                </div>
-                {canManage && (
-                  <button onClick={() => setUserPickerRole('helpee')} className="btn-add w-9 h-9 flex-shrink-0" title="Add Helpee">⊕</button>
-                )}
-              </div>
+              <UserSlot label="Helpee" name={helpee?.user_name} placeholder="Helpee name"
+                onAdd={canManage ? () => setUserPickerRole('helpee') : undefined} />
 
-              {/* Helpers — multiple allowed */}
-              <div className="space-y-1">
-                {/* First row: label + first helper (or placeholder) + add button — mirrors Helpee/Supervisor layout */}
-                <div className="flex gap-2 items-center">
-                  <div className="form-label w-28 flex-shrink-0">Helper(s)</div>
-                  <div className="form-cell flex-1 text-sm flex items-center gap-2 flex-wrap">
+              {/* Helpers */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="w-24 shrink-0 text-sm font-medium text-muted-foreground">Helper(s)</span>
+                  <div className="flex flex-1 flex-wrap items-center gap-2 rounded-lg border border-input bg-card px-3 py-2 text-sm">
                     {helpers.length > 0
-                      ? <>
-                          <span>{helpers[0].user_name}</span>
-                          <WorkerStatusTags status={workerStatuses[helpers[0].id]} />
-                        </>
-                      : <span className="text-hh-placeholder">{canManage ? 'No helpers assigned' : ''}</span>
-                    }
+                      ? <><span className="text-foreground">{helpers[0].user_name}</span><WorkerStatusTags status={workerStatuses[helpers[0].id]} /></>
+                      : <span className="text-muted-foreground">{canManage ? 'No helpers assigned' : '—'}</span>}
                   </div>
                   {helpers.length > 0 && canManage && (
-                    <button onClick={() => removeHelper(helpers[0].id)}
-                      className="btn-icon w-9 h-9 flex-shrink-0 hover:text-hh-error" title="Remove Helper">✕</button>
+                    <Button variant="ghost" size="icon" className="h-9 w-9 shrink-0 text-muted-foreground hover:text-destructive" onClick={() => removeHelper(helpers[0].id)}><X className="h-4 w-4" /></Button>
                   )}
-                  {canManage && (
-                    <button
-                      onClick={openHelperPicker}
-                      className="btn-add w-9 h-9 flex-shrink-0" title="Add Helper">⊕</button>
-                  )}
+                  {canManage && <Button variant="outline" size="icon" className="h-9 w-9 shrink-0" onClick={openHelperPicker} title="Add helper"><Plus className="h-4 w-4" /></Button>}
                 </div>
-                {/* Additional helpers (2nd onwards) — indented to align with value column */}
                 {helpers.slice(1).map(h => (
-                  <div key={h.id} className="flex gap-2 items-center">
-                    <div className="w-28 flex-shrink-0" />
-                    <div className="form-cell flex-1 text-sm flex items-center gap-2 flex-wrap">
-                      <span>{h.user_name}</span>
-                      <WorkerStatusTags status={workerStatuses[h.id]} />
+                  <div key={h.id} className="flex items-center gap-2">
+                    <span className="w-24 shrink-0" />
+                    <div className="flex flex-1 flex-wrap items-center gap-2 rounded-lg border border-input bg-card px-3 py-2 text-sm">
+                      <span className="text-foreground">{h.user_name}</span><WorkerStatusTags status={workerStatuses[h.id]} />
                     </div>
-                    {canManage && (
-                      <button onClick={() => removeHelper(h.id)}
-                        className="btn-icon w-9 h-9 flex-shrink-0 hover:text-hh-error" title="Remove Helper">✕</button>
-                    )}
+                    {canManage && <Button variant="ghost" size="icon" className="h-9 w-9 shrink-0 text-muted-foreground hover:text-destructive" onClick={() => removeHelper(h.id)}><X className="h-4 w-4" /></Button>}
                   </div>
                 ))}
               </div>
 
               {/* Supervisor */}
-              <div className="flex gap-2 items-center">
-                <div className="form-label w-28 capitalize flex-shrink-0">Supervisor</div>
-                <div className="form-cell flex-1 text-sm">
-                  {supervisor ? supervisor.user_name : <span className="text-hh-placeholder">Supervisor Name</span>}
+              <div className="flex items-center gap-2">
+                <span className="w-24 shrink-0 text-sm font-medium text-muted-foreground">Supervisor</span>
+                <div className="flex-1 rounded-lg border border-input bg-card px-3 py-2 text-sm">
+                  {supervisor ? <span className="text-foreground">{supervisor.user_name}</span> : <span className="text-muted-foreground">Supervisor name</span>}
                 </div>
-                {/* Supervisor can assign themselves if no supervisor yet (helpee-created job) */}
                 {isSupervisor && isEdit && !supervisor && (
-                  <button
-                    onClick={() => {
-                      setSupervisor(authUser)
-                      setAssociatedUsers(prev => [
-                        ...prev.filter(a => a.role !== 'supervisor'),
-                        { role: 'supervisor', users: authUser },
-                      ])
-                    }}
-                    className="btn-select px-3 text-xs flex-shrink-0"
-                    title="Assign yourself as supervisor"
-                  >
-                    Assign myself
-                  </button>
+                  <Button variant="secondary" size="sm" className="shrink-0" onClick={() => {
+                    setSupervisor(authUser)
+                    setAssociatedUsers(prev => [...prev.filter(a => a.role !== 'supervisor'), { role: 'supervisor', users: authUser }])
+                  }}>Assign myself</Button>
                 )}
-                {canManage && (
-                  <button onClick={openSupervisorPicker} className="btn-add w-9 h-9 flex-shrink-0" title="Add Supervisor">⊕</button>
-                )}
+                {canManage && <Button variant="outline" size="icon" className="h-9 w-9 shrink-0" onClick={openSupervisorPicker} title="Add supervisor"><Plus className="h-4 w-4" /></Button>}
               </div>
-            </div>
-          </section>
+            </CardContent>
+          </Card>
 
           {(canManage || ((isHelper || isHelpee) && invoice)) && (
-            <section>
-              <h2 className="font-semibold text-base mb-3">Invoice Details</h2>
-              <div className="flex gap-2 items-center">
-                {invoice && (
-                  <button onClick={() => setShowInvoiceView(true)} className="btn-select px-4 text-sm">View Invoice</button>
-                )}
-                {/* Only admin/supervisor can add or edit invoices */}
-                {canManage && isEdit && dbJobId && (
-                  <button onClick={() => setShowInvoiceModal(true)} className="btn-add w-9 h-9" title="Add/Edit Invoice">⊕</button>
-                )}
-              </div>
-              {invoice && (
-                <div className="mt-3 space-y-1 text-sm">
-                  <p><span className="font-medium">Amount:</span> {invoice.invoice_currency} {invoice.invoice_amount}</p>
-                  <p><span className="font-medium">Status:</span> <span className="capitalize">{invoice.invoice_status}</span></p>
-                  {invoice.invoice_notes && <p><span className="font-medium">Notes:</span> {invoice.invoice_notes}</p>}
-                  {invoice.attachment_url && (
-                    <p>
-                      <span className="font-medium">Attachment:</span>{' '}
-                      <a href={invoice.attachment_url} target="_blank" rel="noreferrer"
-                        className="text-hh-green underline">View file ↗</a>
-                    </p>
-                  )}
+            <Card>
+              <CardHeader className="flex-row items-center justify-between space-y-0">
+                <CardTitle>Invoice</CardTitle>
+                <div className="flex gap-2">
+                  {invoice && <Button variant="outline" size="sm" onClick={() => setShowInvoiceView(true)}>View</Button>}
+                  {canManage && isEdit && dbJobId && <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => setShowInvoiceModal(true)} title="Add / edit invoice"><Plus className="h-4 w-4" /></Button>}
                 </div>
-              )}
-            </section>
+              </CardHeader>
+              <CardContent>
+                {invoice ? (
+                  <div className="space-y-1.5 text-sm">
+                    <p><span className="font-medium text-muted-foreground">Amount:</span> {invoice.invoice_currency} {invoice.invoice_amount}</p>
+                    <p className="flex items-center gap-2"><span className="font-medium text-muted-foreground">Status:</span> <Badge variant="muted" className="capitalize">{invoice.invoice_status}</Badge></p>
+                    {invoice.invoice_notes && <p><span className="font-medium text-muted-foreground">Notes:</span> {invoice.invoice_notes}</p>}
+                    {invoice.attachment_url && <p><span className="font-medium text-muted-foreground">Attachment:</span> <a href={invoice.attachment_url} target="_blank" rel="noreferrer" className="text-primary underline">View file ↗</a></p>}
+                  </div>
+                ) : <p className="text-sm text-muted-foreground">No invoice yet.</p>}
+              </CardContent>
+            </Card>
           )}
         </div>
 
-        {/* ── JOB MESSAGE + VIEW REMARK ─────────────── */}
+        {/* Task checklist */}
+        {isEdit && dbJobId && (
+          <Card>
+            <CardHeader><CardTitle>Task checklist</CardTitle></CardHeader>
+            <CardContent>
+              <JobChecklist jobId={dbJobId} canManage={canManage} userId={authUser?.id} />
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Message + remark */}
         {(canUseJobMessages || isEdit) && (
-          <div className="flex flex-col items-end gap-2">
+          <div className="flex flex-wrap justify-end gap-2">
             {canUseJobMessages && (
-              <button
-                type="button"
-                disabled={!dbJobId}
-                title={!dbJobId ? 'Save the job first to send messages' : ''}
-                onClick={() => dbJobId && setShowJobMessageModal(true)}
-                className="btn-select px-5 text-sm bg-hh-green text-white border-hh-green hover:opacity-90 disabled:opacity-45 disabled:cursor-not-allowed"
-              >
-                Job message
-              </button>
+              <Button variant="outline" disabled={!dbJobId} title={!dbJobId ? 'Save the job first to send messages' : ''} onClick={() => dbJobId && setShowJobMessageModal(true)}>
+                <MessageSquare className="h-4 w-4" /> Job message
+              </Button>
             )}
-            {isEdit && (
-              <button
-                type="button"
-                onClick={() => navigate(`/jobs/${dbJobId}/remark`)}
-                className="btn-select px-5 text-sm"
-              >
-                View Remark
-              </button>
-            )}
+            {isEdit && <Button variant="outline" onClick={() => navigate(`/jobs/${dbJobId}/remark`)}><Star className="h-4 w-4" /> View remark</Button>}
           </div>
         )}
 
-        {/* ── ACTION BUTTONS ────────────────────────── */}
+        {/* Status actions */}
         {isEdit && (canManage || isHelper) && (
-          <section>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              {[
-                { label: 'Job Started',       newStatus: 'job_started' },
-                { label: 'Job Finished',      newStatus: 'job_finished' },
-                ...(canManage ? [
-                  { label: 'Payment Confirmed', newStatus: 'payment_confirmed' },
-                  { label: 'Job Close',         newStatus: 'job_closed' },
-                ] : []),
-              ].map(({ label, newStatus }) => {
+          <Card>
+            <CardHeader><CardTitle>Advance status</CardTitle></CardHeader>
+            <CardContent className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              {statusActions.map(({ label, newStatus }) => {
                 const allowed = canTransitionTo(status, newStatus)
+                const isNext = newStatus === nextAllowed
                 return (
-                  <button
-                    key={newStatus}
-                    onClick={() => allowed && setStatusConfirm({ label, newStatus })}
-                    disabled={!allowed}
+                  <Button key={newStatus} variant={isNext ? 'default' : 'outline'} disabled={!allowed}
                     title={!allowed ? 'Cannot go back to a previous status' : undefined}
-                    className={`btn-action ${!allowed ? 'opacity-40 cursor-not-allowed' : ''}`}
-                  >
-                    {label}
-                  </button>
+                    onClick={() => allowed && setStatusConfirm({ label, newStatus })}>
+                    {isNext && <Check className="h-4 w-4" />} {label}
+                  </Button>
                 )
               })}
-            </div>
-          </section>
+            </CardContent>
+          </Card>
         )}
 
-        {/* ── WORKFLOW DISPLAY ─────────────────────── */}
+        {/* Workflow */}
         {isEdit && (
-          <section>
-            <h2 className="font-semibold text-base mb-3">Job Stage</h2>
-            <WorkflowDisplay status={status} associatedUsers={associatedUsers} />
-            <p className="text-xs text-hh-placeholder mt-2">
-              Current: <span className="font-medium capitalize">{JOB_STATUS_LABELS[status] || status}</span>
-            </p>
-          </section>
+          <Card>
+            <CardHeader><CardTitle>Job stage</CardTitle></CardHeader>
+            <CardContent>
+              <WorkflowDisplay status={status} associatedUsers={associatedUsers} />
+              <p className="mt-3 text-xs text-muted-foreground">Current: <span className="font-medium capitalize text-foreground">{JOB_STATUS_LABELS[status] || status}</span></p>
+            </CardContent>
+          </Card>
         )}
 
-        {/* ── ATTENDANCE moved to "Manage Attendance" / "My Day" ── */}
+        {/* Attendance notice */}
         {isFrequent && isEdit && canManage && (
-          <section>
-            <h2 className="font-semibold text-base mb-3">Job Attendance</h2>
-            <div className="bg-hh-mint border border-hh-green-light rounded-hh px-4 py-3 text-sm text-hh-text">
-              Attendance is now managed in the{' '}
-              <button type="button"
-                onClick={() => navigate(isAdmin ? '/admin/manage-attendance' : '/supervisor/manage-attendance')}
-                className="text-hh-green font-semibold underline">
-                Manage Attendance
-              </button>{' '}
-              screen. Workers check in and out from their <span className="font-semibold">My Day</span> screen.
-            </div>
-          </section>
+          <Card>
+            <CardHeader><CardTitle>Attendance</CardTitle></CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">
+                Attendance is managed in the{' '}
+                <button type="button" onClick={() => navigate(isAdmin ? '/admin/manage-attendance' : '/supervisor/manage-attendance')} className="font-semibold text-primary underline">Manage Attendance</button>{' '}
+                screen. Workers check in and out from their <span className="font-semibold text-foreground">My Day</span> screen.
+              </p>
+            </CardContent>
+          </Card>
         )}
 
-        {/* ── SAVE / UPDATE buttons ───────────────── */}
+        {/* Save / back */}
         {(canManage || (!isEdit && isHelpee)) ? (
           <div className="flex gap-3">
-            <button type="button" onClick={handleSave} disabled={saving} className="btn-action px-10">
-              {saving ? 'Saving...' : isEdit ? 'Save Changes' : 'Create Job'}
-            </button>
-            <button type="button" onClick={() => navigate(jobsHubPath(role))} className="btn-filter">
-              {isEdit ? 'Back' : 'Cancel'}
-            </button>
+            <Button onClick={handleSave} disabled={saving} className="px-10">{saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Create Job'}</Button>
+            <Button variant="outline" onClick={() => navigate(jobsHubPath(role))}>{isEdit ? 'Back' : 'Cancel'}</Button>
           </div>
         ) : (
-          <div className="flex gap-3">
-            <button type="button" onClick={() => navigate(jobsHubPath(role))} className="btn-filter px-8">
-              ← Back to Jobs
-            </button>
-          </div>
+          <Button variant="outline" onClick={() => navigate(jobsHubPath(role))}>← Back to Jobs</Button>
         )}
       </div>
 
-      {/* ── MODALS ───────────────────────────────────── */}
-      {userPickerRole && (
-        <UserPickerModal roleFilter={userPickerRole} departmentId={form.department_id} onSelect={handleUserSelected} onClose={() => setUserPickerRole(null)} />
-      )}
+      {/* Modals */}
+      {userPickerRole && <UserPickerModal roleFilter={userPickerRole} departmentId={form.department_id} onSelect={handleUserSelected} onClose={() => setUserPickerRole(null)} />}
 
-      {pendingConflict && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
-          onClick={cancelConflictAssign}>
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-5"
-            onClick={e => e.stopPropagation()}>
-            <div className="flex items-start gap-3 mb-3">
-              <span className="text-2xl">⚠️</span>
-              <div>
-                <h2 className="text-lg font-bold text-hh-text">Scheduling Conflict</h2>
-                <p className="text-sm text-hh-placeholder mt-0.5">
-                  {pendingConflict.user.user_name} may not be available for this job.
-                </p>
+      <Dialog open={!!pendingConflict} onOpenChange={(o) => { if (!o) cancelConflictAssign() }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><AlertTriangle className="h-5 w-5 text-warning" /> Scheduling conflict</DialogTitle>
+            <DialogDescription>{pendingConflict?.user.user_name} may not be available for this job.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 rounded-xl border border-warning/30 bg-warning/5 p-3 text-sm">
+            {pendingConflict?.conflicts.map((c, i) => (
+              <div key={i} className="text-foreground">
+                {c.type === 'leave'
+                  ? <><span className="font-semibold text-warning">On approved leave</span> — {c.detail}</>
+                  : <>Already assigned to <span className="font-semibold text-warning">{c.label}</span> <span className="text-muted-foreground">— {c.detail}</span></>}
               </div>
-            </div>
-
-            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4 space-y-2">
-              {pendingConflict.conflicts.map((c, i) => (
-                <div key={i} className="text-sm">
-                  {c.type === 'leave' ? (
-                    <span className="text-hh-text">
-                      <span className="font-semibold text-amber-700">On approved leave</span> — {c.detail}
-                    </span>
-                  ) : (
-                    <span className="text-hh-text">
-                      Already assigned to <span className="font-semibold text-amber-700">{c.label}</span>
-                      <span className="text-hh-placeholder"> — {c.detail}</span>
-                    </span>
-                  )}
-                </div>
-              ))}
-            </div>
-
-            <p className="text-sm text-hh-placeholder mb-4">
-              You can assign them anyway, or cancel and pick someone else.
-            </p>
-
-            <div className="flex gap-3 justify-end">
-              <button onClick={cancelConflictAssign}
-                className="px-4 py-2.5 text-sm font-medium text-hh-placeholder border border-gray-200 rounded-xl">
-                Cancel
-              </button>
-              <button onClick={confirmConflictAssign}
-                className="px-5 py-2.5 text-sm font-bold text-white bg-amber-600 rounded-xl hover:opacity-90">
-                Assign Anyway
-              </button>
-            </div>
+            ))}
           </div>
-        </div>
-      )}
+          <DialogFooter>
+            <Button variant="outline" onClick={cancelConflictAssign}>Cancel</Button>
+            <Button onClick={confirmConflictAssign}>Assign anyway</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {showAddChooser && (
         <AddWorkerChooser
           onAdditional={() => { setShowAddChooser(false); setUserPickerRole('helper') }}
-          onReplacement={() => {
-            setShowAddChooser(false)
-            setReplacementFlow({ replacedUserId: '', fromDate: '', toDate: '', reason: '', candidates: null, replacementUserId: '', loading: false, err: '' })
-          }}
-          onClose={() => setShowAddChooser(false)}
-          canReplace={helpers.length > 0}
-        />
+          onReplacement={() => { setShowAddChooser(false); setReplacementFlow({ replacedUserId: '', fromDate: '', toDate: '', reason: '', candidates: null, replacementUserId: '', loading: false, err: '' }) }}
+          onClose={() => setShowAddChooser(false)} canReplace={helpers.length > 0} />
       )}
 
       {replacementFlow && (
-        <ReplacementFlowModal
-          flow={replacementFlow}
-          setFlow={setReplacementFlow}
-          jobId={dbJobId}
-          currentHelpers={helpers}
-          createdBy={authUser?.id}
-          onDone={(newWorker) => {
-            setHelpers(prev => prev.find(h => h.id === newWorker.id) ? prev : [...prev, newWorker])
-            setReplacementFlow(null)
-          }}
-          onClose={() => setReplacementFlow(null)}
-        />
+        <ReplacementFlowModal flow={replacementFlow} setFlow={setReplacementFlow} jobId={dbJobId} currentHelpers={helpers} createdBy={authUser?.id}
+          onDone={(newWorker) => { setHelpers(prev => prev.find(h => h.id === newWorker.id) ? prev : [...prev, newWorker]); setReplacementFlow(null) }}
+          onClose={() => setReplacementFlow(null)} />
       )}
-      {showInvoiceModal && dbJobId && (
-        <InvoiceModal jobId={dbJobId} existing={invoice}
-          onSave={(inv) => { setInvoice(inv); setShowInvoiceModal(false) }}
-          onClose={() => setShowInvoiceModal(false)} />
-      )}
-      {showInvoiceView && invoice && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
-          <div className="bg-white rounded-hh-xl shadow-hh-lg w-full max-w-sm p-6 space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="font-semibold">Invoice</h3>
-              <button onClick={() => setShowInvoiceView(false)} className="btn-icon w-8 h-8">✕</button>
+
+      {showInvoiceModal && dbJobId && <InvoiceModal jobId={dbJobId} existing={invoice} onSave={(inv) => { setInvoice(inv); setShowInvoiceModal(false) }} onClose={() => setShowInvoiceModal(false)} />}
+
+      <Dialog open={showInvoiceView && !!invoice} onOpenChange={(o) => { if (!o) setShowInvoiceView(false) }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Invoice</DialogTitle></DialogHeader>
+          {invoice && (
+            <div className="space-y-1.5 text-sm">
+              <p><span className="font-medium text-muted-foreground">Amount:</span> {invoice.invoice_currency} {invoice.invoice_amount}</p>
+              <p><span className="font-medium text-muted-foreground">Date:</span> {invoice.invoice_date || '—'}</p>
+              <p className="flex items-center gap-2"><span className="font-medium text-muted-foreground">Status:</span> <Badge variant="muted" className="capitalize">{invoice.invoice_status}</Badge></p>
+              {invoice.invoice_notes && <p><span className="font-medium text-muted-foreground">Notes:</span> {invoice.invoice_notes}</p>}
+              {invoice.attachment_url && <p><span className="font-medium text-muted-foreground">Attachment:</span> <a href={invoice.attachment_url} target="_blank" rel="noreferrer" className="text-primary underline">View file ↗</a></p>}
             </div>
-            <p><span className="font-medium">Amount:</span> {invoice.invoice_currency} {invoice.invoice_amount}</p>
-            <p><span className="font-medium">Date:</span> {invoice.invoice_date || '—'}</p>
-            <p><span className="font-medium">Status:</span> <span className="capitalize">{invoice.invoice_status}</span></p>
-            {invoice.invoice_notes && <p><span className="font-medium">Notes:</span> {invoice.invoice_notes}</p>}
-            {invoice.attachment_url && (
-              <p>
-                <span className="font-medium">Attachment:</span>{' '}
-                <a href={invoice.attachment_url} target="_blank" rel="noreferrer"
-                  className="text-hh-green underline">View file ↗</a>
-              </p>
-            )}
-          </div>
-        </div>
-      )}
+          )}
+        </DialogContent>
+      </Dialog>
+
       {statusConfirm && (
-        <ConfirmModal message={`Mark job as "${statusConfirm.label}"?`}
-          onConfirm={() => handleStatusAction(statusConfirm.newStatus)}
-          onCancel={() => setStatusConfirm(null)} />
+        <ConfirmModal title="Update status" confirmLabel="Confirm" message={`Mark job as "${statusConfirm.label}"?`}
+          onConfirm={() => handleStatusAction(statusConfirm.newStatus)} onCancel={() => setStatusConfirm(null)} />
       )}
-      {rejectTarget && (
-        <RejectModal
-          onConfirm={(reason) => handleRejectRow(rejectTarget, reason)}
-          onClose={() => setRejectTarget(null)} />
-      )}
+
       {showJobMessageModal && dbJobId && canUseJobMessages && (
-        <JobMessageModal
-          jobId={dbJobId}
-          open={showJobMessageModal}
-          onClose={() => setShowJobMessageModal(false)}
-          authUser={authUser}
-          authorRole={jobMessageAuthorRole}
-        />
+        <JobMessageModal jobId={dbJobId} open={showJobMessageModal} onClose={() => setShowJobMessageModal(false)} authUser={authUser} authorRole={jobMessageAuthorRole} />
       )}
     </MainLayout>
   )
 }
 
-/* ── Additional vs Replacement chooser (shown on ongoing jobs) ── */
-function AddWorkerChooser({ onAdditional, onReplacement, onClose, canReplace }) {
+// Small stacked label+field helper
+function Field({ label, children, className }) {
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-5" onClick={e => e.stopPropagation()}>
-        <h2 className="text-lg font-bold text-hh-text mb-1">Add Worker</h2>
-        <p className="text-sm text-hh-placeholder mb-4">
-          This job is already in progress. Are you adding an additional worker, or replacing one?
-        </p>
-        <div className="grid grid-cols-1 gap-3">
-          <button onClick={onAdditional}
-            className="text-left px-4 py-4 rounded-xl border border-gray-200 hover:border-hh-green hover:bg-green-50 transition-colors">
-            <div className="font-semibold text-hh-text">Additional worker</div>
-            <div className="text-sm text-hh-placeholder">Assign another worker on top of the current team.</div>
-          </button>
-          <button onClick={onReplacement} disabled={!canReplace}
-            className="text-left px-4 py-4 rounded-xl border border-gray-200 hover:border-amber-400 hover:bg-amber-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-            <div className="font-semibold text-hh-text">Replacement</div>
-            <div className="text-sm text-hh-placeholder">
-              {canReplace ? 'Cover an existing worker for a date range.' : 'No existing worker to replace.'}
-            </div>
-          </button>
-        </div>
-        <div className="flex justify-end mt-4">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-hh-placeholder">Cancel</button>
-        </div>
-      </div>
+    <div className={cn('flex flex-col gap-1.5', className)}>
+      <Label>{label}</Label>
+      {children}
     </div>
   )
 }
 
-/* ── Replacement flow: pick A, set From–To + reason, pick filtered B ── */
+function UserSlot({ label, name, placeholder, onAdd }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="w-24 shrink-0 text-sm font-medium text-muted-foreground">{label}</span>
+      <div className="flex-1 rounded-lg border border-input bg-card px-3 py-2 text-sm">
+        {name ? <span className="text-foreground">{name}</span> : <span className="text-muted-foreground">{placeholder}</span>}
+      </div>
+      {onAdd && <Button variant="outline" size="icon" className="h-9 w-9 shrink-0" onClick={onAdd} title={`Add ${label}`}><Plus className="h-4 w-4" /></Button>}
+    </div>
+  )
+}
+
+/* Additional vs Replacement chooser */
+function AddWorkerChooser({ onAdditional, onReplacement, onClose, canReplace }) {
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Add worker</DialogTitle>
+          <DialogDescription>This job is already in progress. Adding an additional worker, or replacing one?</DialogDescription>
+        </DialogHeader>
+        <div className="grid grid-cols-1 gap-3">
+          <button onClick={onAdditional} className="rounded-xl border border-border p-4 text-left transition-colors hover:border-primary hover:bg-accent">
+            <div className="font-semibold text-foreground">Additional worker</div>
+            <div className="text-sm text-muted-foreground">Assign another worker on top of the current team.</div>
+          </button>
+          <button onClick={onReplacement} disabled={!canReplace} className="rounded-xl border border-border p-4 text-left transition-colors hover:border-warning hover:bg-warning/5 disabled:opacity-50">
+            <div className="font-semibold text-foreground">Replacement</div>
+            <div className="text-sm text-muted-foreground">{canReplace ? 'Cover an existing worker for a date range.' : 'No existing worker to replace.'}</div>
+          </button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/* Replacement flow */
 function ReplacementFlowModal({ flow, setFlow, jobId, currentHelpers, createdBy, onDone, onClose }) {
   const upd = (patch) => setFlow(prev => ({ ...prev, ...patch }))
 
   const loadCandidates = async () => {
-    if (!flow.replacedUserId || !flow.fromDate || !flow.toDate) {
-      upd({ err: 'Select who is being replaced and the coverage dates first.' }); return
-    }
-    if (flow.toDate < flow.fromDate) {
-      upd({ err: 'To date must be on or after From date.' }); return
-    }
+    if (!flow.replacedUserId || !flow.fromDate || !flow.toDate) { upd({ err: 'Select who is being replaced and the coverage dates first.' }); return }
+    if (flow.toDate < flow.fromDate) { upd({ err: 'To date must be on or after From date.' }); return }
     upd({ loading: true, err: '', candidates: null })
-    try {
-      const list = await getAvailableReplacementWorkers(jobId, flow.replacedUserId, flow.fromDate, flow.toDate)
-      upd({ candidates: list, loading: false })
-    } catch (e) {
-      upd({ err: e.message || 'Could not load available workers', loading: false })
-    }
+    try { upd({ candidates: await getAvailableReplacementWorkers(jobId, flow.replacedUserId, flow.fromDate, flow.toDate), loading: false }) }
+    catch (e) { upd({ err: e.message || 'Could not load available workers', loading: false }) }
   }
 
   const submit = async () => {
     if (!flow.replacementUserId) { upd({ err: 'Select a replacement worker.' }); return }
     upd({ loading: true, err: '' })
     try {
-      await createWorkerReplacement({
-        jobId,
-        replacedUserId: flow.replacedUserId,
-        replacementUserId: flow.replacementUserId,
-        fromDate: flow.fromDate,
-        toDate: flow.toDate,
-        reason: flow.reason,
-        createdBy,
-      })
+      await createWorkerReplacement({ jobId, replacedUserId: flow.replacedUserId, replacementUserId: flow.replacementUserId, fromDate: flow.fromDate, toDate: flow.toDate, reason: flow.reason, createdBy })
       const picked = (flow.candidates || []).find(c => c.id === flow.replacementUserId)
       onDone(picked || { id: flow.replacementUserId, user_name: 'Replacement' })
-    } catch (e) {
-      upd({ err: e.message || 'Could not assign replacement', loading: false })
-    }
+    } catch (e) { upd({ err: e.message || 'Could not assign replacement', loading: false }) }
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
-        <div className="px-5 pt-5 pb-3 border-b border-gray-100 shrink-0">
-          <h2 className="text-lg font-bold text-hh-text">Replace Worker</h2>
-        </div>
-
-        <div className="px-5 py-4 overflow-y-auto flex-1">
-          <label className="block text-xs text-hh-placeholder mb-1">Worker being replaced</label>
-          <select value={flow.replacedUserId}
-            onChange={e => upd({ replacedUserId: e.target.value, candidates: null, replacementUserId: '' })}
-            className="form-cell px-3 py-2 text-sm w-full mb-4">
-            <option value="">Select worker…</option>
-            {currentHelpers.map(h => <option key={h.id} value={h.id}>{h.user_name}</option>)}
-          </select>
-
-          <div className="grid grid-cols-2 gap-3 mb-4">
-            <div>
-              <label className="block text-xs text-hh-placeholder mb-1">From</label>
-              <input type="date" value={flow.fromDate}
-                onChange={e => upd({ fromDate: e.target.value, candidates: null, replacementUserId: '' })}
-                className="form-cell px-3 py-2 text-sm w-full" />
-            </div>
-            <div>
-              <label className="block text-xs text-hh-placeholder mb-1">To</label>
-              <input type="date" value={flow.toDate}
-                onChange={e => upd({ toDate: e.target.value, candidates: null, replacementUserId: '' })}
-                className="form-cell px-3 py-2 text-sm w-full" />
-            </div>
+    <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
+      <DialogContent className="max-h-[90vh] max-w-md overflow-y-auto">
+        <DialogHeader><DialogTitle>Replace worker</DialogTitle></DialogHeader>
+        <div className="space-y-4">
+          <div className="flex flex-col gap-1.5">
+            <Label>Worker being replaced</Label>
+            <Select value={flow.replacedUserId || undefined} onValueChange={v => upd({ replacedUserId: v, candidates: null, replacementUserId: '' })}>
+              <SelectTrigger><SelectValue placeholder="Select worker…" /></SelectTrigger>
+              <SelectContent>{currentHelpers.map(h => <SelectItem key={h.id} value={h.id}>{h.user_name}</SelectItem>)}</SelectContent>
+            </Select>
           </div>
-
-          <label className="block text-xs text-hh-placeholder mb-1">Reason for replacement</label>
-          <textarea value={flow.reason} onChange={e => upd({ reason: e.target.value })}
-            placeholder="Why is a replacement needed?"
-            className="form-cell px-3 py-2 text-sm w-full h-16 resize-none mb-4" />
-
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-col gap-1.5"><Label>From</Label><Input type="date" value={flow.fromDate} onChange={e => upd({ fromDate: e.target.value, candidates: null, replacementUserId: '' })} /></div>
+            <div className="flex flex-col gap-1.5"><Label>To</Label><Input type="date" value={flow.toDate} onChange={e => upd({ toDate: e.target.value, candidates: null, replacementUserId: '' })} /></div>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label>Reason for replacement</Label>
+            <Textarea value={flow.reason} onChange={e => upd({ reason: e.target.value })} placeholder="Why is a replacement needed?" className="min-h-[64px]" />
+          </div>
           {flow.candidates === null ? (
-            <button onClick={loadCandidates} disabled={flow.loading}
-              className="w-full py-2.5 text-sm font-medium border border-hh-green text-hh-green rounded-xl disabled:opacity-50">
-              {flow.loading ? 'Checking availability…' : 'Find available workers'}
-            </button>
+            <Button variant="outline" className="w-full" onClick={loadCandidates} disabled={flow.loading}>{flow.loading ? 'Checking availability…' : 'Find available workers'}</Button>
           ) : (
-            <>
-              <label className="block text-xs text-hh-placeholder mb-1">
-                Available worker {flow.candidates.length === 0 && '(none available for this window)'}
-              </label>
-              <select value={flow.replacementUserId} onChange={e => upd({ replacementUserId: e.target.value })}
-                className="form-cell px-3 py-2 text-sm w-full" disabled={flow.candidates.length === 0}>
-                <option value="">Select replacement…</option>
-                {flow.candidates.map(c => <option key={c.id} value={c.id}>{c.user_name}</option>)}
-              </select>
-              <p className="text-[11px] text-hh-placeholder mt-1">
-                Workers on leave or already booked in this window are hidden.
-              </p>
-            </>
+            <div className="flex flex-col gap-1.5">
+              <Label>Available worker {flow.candidates.length === 0 && '(none available for this window)'}</Label>
+              <Select value={flow.replacementUserId || undefined} onValueChange={v => upd({ replacementUserId: v })} disabled={flow.candidates.length === 0}>
+                <SelectTrigger><SelectValue placeholder="Select replacement…" /></SelectTrigger>
+                <SelectContent>{flow.candidates.map(c => <SelectItem key={c.id} value={c.id}>{c.user_name}</SelectItem>)}</SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">Workers on leave or already booked in this window are hidden.</p>
+            </div>
           )}
-
-          {flow.err && <div className="bg-red-50 text-hh-error text-sm rounded-lg px-3 py-2 mt-3">{flow.err}</div>}
+          {flow.err && <ErrorBanner message={flow.err} />}
         </div>
-
-        <div className="px-5 py-4 border-t border-gray-100 flex gap-3 shrink-0">
-          <button onClick={onClose} className="flex-1 py-3 text-sm font-medium text-hh-placeholder border border-gray-200 rounded-xl">
-            Cancel
-          </button>
-          <button onClick={submit} disabled={flow.loading || flow.candidates === null || !flow.replacementUserId}
-            className="flex-1 bg-amber-600 text-white font-bold py-3 rounded-xl disabled:opacity-50">
-            {flow.loading ? 'Assigning…' : 'Assign Replacement'}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-/* ── Worker status tags (on leave / replaced / covering) — visible to all roles ── */
-function WorkerStatusTags({ status }) {
-  if (!status) return null
-  return (
-    <>
-      {status.onLeave && (
-        <span className="text-[10px] font-bold bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full"
-          title="This worker is on approved leave">On Leave</span>
-      )}
-      {status.replaced && !status.onLeave && (
-        <span className="text-[10px] font-bold bg-red-100 text-hh-error px-1.5 py-0.5 rounded-full"
-          title="This worker is being covered by a replacement">Replaced</span>
-      )}
-      {status.isReplacement && (
-        <span className="text-[10px] font-bold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full"
-          title={status.coveringFor ? `Covering for ${status.coveringFor}` : 'Covering during another worker\u2019s absence'}>
-          Replacement{status.coveringFor ? ` for ${status.coveringFor}` : ''}
-        </span>
-      )}
-    </>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button onClick={submit} disabled={flow.loading || flow.candidates === null || !flow.replacementUserId}>{flow.loading ? 'Assigning…' : 'Assign replacement'}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

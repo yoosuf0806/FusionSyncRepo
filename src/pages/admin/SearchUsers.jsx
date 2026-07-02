@@ -1,19 +1,26 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
+import { LayoutGrid, List } from 'lucide-react'
 import MainLayout from '../../layouts/MainLayout'
 import { getUsers } from '../../services/userService'
 import SearchInput from '../../components/SearchInput'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import EmptyState from '../../components/EmptyState'
 import ErrorBanner from '../../components/ErrorBanner'
-
-// Used for both job assignment (Page 18) and department assignment (Page 22)
-// Query params:
-//   returnTo     - URL to navigate to after selection
-//   role         - filter to show only this user type (optional)
-//   addUser      - populated with selected user id on return
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Card } from '@/components/ui/card'
+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { cn } from '@/lib/utils'
 
 const ROLE_FILTERS = ['helpee', 'helper', 'supervisor']
+const ROLE_VARIANT = { admin: 'default', supervisor: 'secondary', helper: 'muted', helpee: 'outline' }
+
+function initials(name) {
+  if (!name) return 'U'
+  return name.trim().split(/\s+/).slice(0, 2).map(w => w[0]).join('').toUpperCase()
+}
 
 export default function SearchUsers() {
   const navigate = useNavigate()
@@ -50,32 +57,23 @@ export default function SearchUsers() {
 
   const toggleRole = (r) => setRoleFilter(prev => prev === r ? '' : r)
 
-  const GridViewIcon = () => (
-    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-        d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
-    </svg>
-  )
-  const ListViewIcon = () => (
-    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
-    </svg>
-  )
-
   return (
     <MainLayout title="Search Users">
-      <div className="max-w-4xl mx-auto space-y-4">
-
+      <div className="space-y-4">
         <div className="flex flex-wrap items-center gap-3">
-          <SearchInput value={search} onChange={e => setSearch(e.target.value)} placeholder="Search" className="w-72" />
-          {ROLE_FILTERS.map(r => (
-            <button key={r} onClick={() => toggleRole(r)} className={roleFilter === r ? 'btn-filter-active' : 'btn-filter'}>
-              {r.charAt(0).toUpperCase() + r.slice(1)}
-            </button>
-          ))}
-          <div className="ml-auto flex gap-1">
-            <button onClick={() => setGridView(false)} className={`btn-icon w-9 h-9 ${!gridView ? 'bg-hh-green-med text-white' : ''}`}><ListViewIcon /></button>
-            <button onClick={() => setGridView(true)} className={`btn-icon w-9 h-9 ${gridView ? 'bg-hh-green-med text-white' : ''}`}><GridViewIcon /></button>
+          <SearchInput value={search} onChange={e => setSearch(e.target.value)} placeholder="Search users" className="w-full max-w-xs" />
+          <div className="flex flex-wrap gap-2">
+            {ROLE_FILTERS.map(r => (
+              <button key={r} onClick={() => toggleRole(r)}
+                className={cn('rounded-full px-3.5 py-1.5 text-sm font-medium capitalize transition-colors border',
+                  roleFilter === r ? 'bg-primary text-primary-foreground border-primary' : 'bg-card text-muted-foreground border-border hover:bg-muted')}>
+                {r}
+              </button>
+            ))}
+          </div>
+          <div className="ml-auto flex gap-1 rounded-lg border border-border bg-card p-1">
+            <Button variant={!gridView ? 'secondary' : 'ghost'} size="icon" className="h-8 w-8" onClick={() => setGridView(false)}><List className="h-4 w-4" /></Button>
+            <Button variant={gridView ? 'secondary' : 'ghost'} size="icon" className="h-8 w-8" onClick={() => setGridView(true)}><LayoutGrid className="h-4 w-4" /></Button>
           </div>
         </div>
 
@@ -86,37 +84,48 @@ export default function SearchUsers() {
         ) : users.length === 0 ? (
           <EmptyState message="No users found" />
         ) : gridView ? (
-          // Grid view
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {users.map(u => (
-              <div key={u.id} className="hh-card p-4 space-y-1">
-                <p className="text-sm font-semibold">{u.user_name}</p>
-                <p className="text-xs text-hh-placeholder">{u.user_id}</p>
-                <p className="text-xs capitalize text-hh-placeholder">{u.user_type}</p>
-                <button onClick={() => handleSelect(u)} className="btn-select w-full mt-2 text-sm">Select</button>
-              </div>
+              <Card key={u.id} className="flex flex-col gap-3 p-4">
+                <div className="flex items-center gap-3">
+                  <Avatar><AvatarFallback>{initials(u.user_name)}</AvatarFallback></Avatar>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-foreground">{u.user_name}</p>
+                    <p className="text-xs text-muted-foreground">{u.user_id}</p>
+                  </div>
+                  <Badge variant={ROLE_VARIANT[u.user_type] || 'muted'} className="capitalize">{u.user_type}</Badge>
+                </div>
+                <Button variant="outline" className="w-full" onClick={() => handleSelect(u)}>Select</Button>
+              </Card>
             ))}
           </div>
         ) : (
-          // List view
-          <div className="space-y-2">
-            <div className="grid grid-cols-[110px_1fr_1fr_120px_120px] gap-2">
-              {['ID', 'Name', 'Email', 'Type', 'Action'].map(h => (
-                <div key={h} className="table-header rounded-hh-lg px-2 text-xs">{h}</div>
-              ))}
-            </div>
-            {users.map(u => (
-              <div key={u.id} className="grid grid-cols-[110px_1fr_1fr_120px_120px] gap-2">
-                <div className="table-row rounded-hh-lg px-2 text-xs">{u.user_id}</div>
-                <div className="table-row rounded-hh-lg px-2 text-xs">{u.user_name}</div>
-                <div className="table-row rounded-hh-lg px-2 text-xs truncate">{u.user_email}</div>
-                <div className="table-row rounded-hh-lg px-2 text-xs capitalize">{u.user_type}</div>
-                <div className="table-row rounded-hh-lg px-2">
-                  <button onClick={() => handleSelect(u)} className="btn-select text-xs px-3">Select</button>
-                </div>
-              </div>
-            ))}
-          </div>
+          <Card className="overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead className="w-[110px]">ID</TableHead>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Email</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead className="text-right">Action</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {users.map(u => (
+                  <TableRow key={u.id}>
+                    <TableCell className="font-medium text-muted-foreground">{u.user_id}</TableCell>
+                    <TableCell className="font-medium text-foreground">{u.user_name}</TableCell>
+                    <TableCell className="text-muted-foreground">{u.user_email}</TableCell>
+                    <TableCell><Badge variant={ROLE_VARIANT[u.user_type] || 'muted'} className="capitalize">{u.user_type}</Badge></TableCell>
+                    <TableCell className="text-right">
+                      <Button variant="outline" size="sm" onClick={() => handleSelect(u)}>Select</Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Card>
         )}
       </div>
     </MainLayout>

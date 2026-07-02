@@ -1,9 +1,14 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { CheckCircle2 } from 'lucide-react'
 import MainLayout from '../../layouts/MainLayout'
 import { changeCurrentUserPassword } from '../../services/authService'
-import FormRow from '../../components/FormRow'
 import ErrorBanner from '../../components/ErrorBanner'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 
 export default function ChangePassword() {
   const navigate = useNavigate()
@@ -46,55 +51,54 @@ export default function ChangePassword() {
     }
   }
 
-  const inputClass = (field) =>
-    `form-cell flex-1 w-full outline-none text-sm ${errors[field] ? 'border border-hh-error' : ''}`
-
   return (
     <MainLayout title="Change Password">
-      <div className="max-w-xl mx-auto space-y-4">
+      <div className="max-w-lg mx-auto space-y-4">
 
         {apiError && <ErrorBanner message={apiError} onClose={() => setApiError('')} />}
 
         {success && (
-          <div className="bg-hh-green text-white rounded-hh px-4 py-3 text-sm font-medium">
-            Password changed successfully!
-          </div>
+          <Alert variant="success">
+            <CheckCircle2 className="h-4 w-4" />
+            <AlertDescription>Password changed successfully.</AlertDescription>
+          </Alert>
         )}
 
-        <div className="hh-card p-6 space-y-3">
-          <h2 className="text-base font-semibold mb-4">Set New Password</h2>
+        <Card>
+          <CardHeader>
+            <CardTitle>Set a new password</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="newPw">New password</Label>
+              <Input
+                id="newPw" type="password" value={form.newPw}
+                onChange={e => set('newPw', e.target.value)}
+                placeholder="Minimum 6 characters"
+                className={errors.newPw ? 'border-destructive focus-visible:ring-destructive/30' : ''}
+              />
+              {errors.newPw && <p className="text-xs text-destructive">{errors.newPw}</p>}
+            </div>
 
-          <FormRow label="New Password" labelWidth="w-44">
-            <input
-              type="password"
-              className={inputClass('newPw')}
-              value={form.newPw}
-              onChange={e => set('newPw', e.target.value)}
-              placeholder="Minimum 6 characters"
-            />
-          </FormRow>
-          {errors.newPw && <p className="text-hh-error text-xs ml-48">{errors.newPw}</p>}
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="confirm">Confirm password</Label>
+              <Input
+                id="confirm" type="password" value={form.confirm}
+                onChange={e => set('confirm', e.target.value)}
+                placeholder="Repeat new password"
+                className={errors.confirm ? 'border-destructive focus-visible:ring-destructive/30' : ''}
+              />
+              {errors.confirm && <p className="text-xs text-destructive">{errors.confirm}</p>}
+            </div>
 
-          <FormRow label="Confirm Password" labelWidth="w-44">
-            <input
-              type="password"
-              className={inputClass('confirm')}
-              value={form.confirm}
-              onChange={e => set('confirm', e.target.value)}
-              placeholder="Repeat new password"
-            />
-          </FormRow>
-          {errors.confirm && <p className="text-hh-error text-xs ml-48">{errors.confirm}</p>}
-
-          <div className="flex gap-3 pt-2">
-            <button onClick={handleSave} disabled={saving} className="btn-action px-8">
-              {saving ? 'Saving...' : 'Change Password'}
-            </button>
-            <button onClick={() => navigate('/profile')} className="btn-filter">
-              Cancel
-            </button>
-          </div>
-        </div>
+            <div className="flex gap-3 pt-1">
+              <Button onClick={handleSave} disabled={saving} className="px-8">
+                {saving ? 'Saving…' : 'Change password'}
+              </Button>
+              <Button variant="outline" onClick={() => navigate('/profile')}>Cancel</Button>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </MainLayout>
   )

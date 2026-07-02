@@ -1,17 +1,17 @@
+import { Search } from 'lucide-react'
+import { cn } from '@/lib/utils'
+
 export default function SearchInput({ value, onChange, placeholder = 'Search', className = '' }) {
   return (
-    <div className={`search-input ${className}`}>
+    <div className={cn('relative', className)}>
+      <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
       <input
         type="text"
         value={value}
         onChange={onChange}
         placeholder={placeholder}
-        className="flex-1 outline-none text-sm text-hh-text placeholder-hh-placeholder bg-transparent"
+        className="h-11 w-full rounded-lg border border-input bg-card pl-10 pr-4 text-sm shadow-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:border-ring"
       />
-      <svg className="w-4 h-4 text-hh-placeholder flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-          d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-      </svg>
     </div>
   )
 }

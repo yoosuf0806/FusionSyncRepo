@@ -1,26 +1,30 @@
 import { useState, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
+import { Star, CheckCircle2, Lock } from 'lucide-react'
 import MainLayout from '../../layouts/MainLayout'
 import { useAuth } from '../../contexts/AuthContext'
 import { getJobById, saveRemark } from '../../services/jobService'
-import FormRow from '../../components/FormRow'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import ErrorBanner from '../../components/ErrorBanner'
+import { Button } from '@/components/ui/button'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { cn } from '@/lib/utils'
 
 function StarRating({ rating, onChange, readOnly }) {
   return (
-    <div className="flex gap-2 items-center">
+    <div className="flex items-center gap-1.5">
       {[1, 2, 3, 4, 5].map(star => (
         <button
           key={star}
           type="button"
           disabled={readOnly}
           onClick={() => !readOnly && onChange && onChange(star)}
-          className={`text-2xl transition-colors ${
-            star <= rating ? 'text-hh-star' : 'text-hh-node-off'
-          } ${readOnly ? 'cursor-default' : 'hover:text-hh-star cursor-pointer'}`}
+          className={cn('transition-transform', !readOnly && 'hover:scale-110 cursor-pointer', readOnly && 'cursor-default')}
         >
-          ★
+          <Star className={cn('h-8 w-8', star <= rating ? 'fill-warning text-warning' : 'fill-muted text-muted-foreground/40')} />
         </button>
       ))}
     </div>
@@ -29,7 +33,7 @@ function StarRating({ rating, onChange, readOnly }) {
 
 export default function JobRemark() {
   const { id } = useParams()
-  const { user: authUser, isHelpee, isAdmin } = useAuth()
+  const { user: authUser, isHelpee } = useAuth()
   const [dbUser, setDbUser] = useState(null)
   const [rating, setRating] = useState(0)
   const [remarkText, setRemarkText] = useState('')
@@ -37,11 +41,8 @@ export default function JobRemark() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [saved, setSaved] = useState(false)
-  // Track whether a remark already exists in the DB (separate from form state)
-  // This is the correct lock signal — not the form field values
   const [existsInDb, setExistsInDb] = useState(false)
 
-  // authUser from context IS the DB user record
   useEffect(() => {
     if (authUser) setDbUser(authUser)
     const load = async () => {
@@ -50,13 +51,9 @@ export default function JobRemark() {
         if (job.remark) {
           setRating(job.remark.rating || 0)
           setRemarkText(job.remark.remark_text || '')
-          setExistsInDb(true) // remark already saved — lock it
+          setExistsInDb(true)
         }
-      } catch (e) {
-        setError('Unable to load job remark')
-      } finally {
-        setLoading(false)
-      }
+      } catch (e) { setError('Unable to load job remark') } finally { setLoading(false) }
     }
     load()
   }, [id, authUser])
@@ -64,71 +61,46 @@ export default function JobRemark() {
   const handleSubmit = async () => {
     if (!rating) { setError('Please select a star rating'); return }
     if (!dbUser) return
-    setSaving(true)
-    setError('')
+    setSaving(true); setError('')
     try {
       await saveRemark(id, dbUser.id, rating, remarkText)
-      setSaved(true)
-      setExistsInDb(true)
-    } catch (e) {
-      setError(e.message)
-    } finally {
-      setSaving(false)
-    }
+      setSaved(true); setExistsInDb(true)
+    } catch (e) { setError(e.message) } finally { setSaving(false) }
   }
 
-  // Remark is locked once it exists in the DB (loaded or just saved)
-  // Helpee can add a remark if none exists yet; admin can always view
   const remarkAlreadySubmitted = existsInDb
   const canEdit = !remarkAlreadySubmitted && isHelpee
 
-  if (loading) return <MainLayout title="View Job Rating"><LoadingSpinner /></MainLayout>
+  if (loading) return <MainLayout title="Job Rating"><LoadingSpinner /></MainLayout>
 
   return (
-    <MainLayout title="View Job Rating">
-      <div className="max-w-2xl mx-auto space-y-4">
+    <MainLayout title="Job Rating">
+      <div className="mx-auto max-w-2xl space-y-4">
         {error && <ErrorBanner message={error} onClose={() => setError('')} />}
         {saved && (
-          <div className="bg-hh-green text-white rounded-hh px-4 py-3 text-sm font-medium">
-            Rating saved successfully! This remark is now locked.
-          </div>
+          <Alert variant="success"><CheckCircle2 className="h-4 w-4" /><AlertDescription>Rating saved. This remark is now locked.</AlertDescription></Alert>
         )}
         {!saved && remarkAlreadySubmitted && (
-          <div className="bg-gray-100 text-gray-600 rounded-hh px-4 py-3 text-sm">
-            This remark has already been submitted and cannot be edited.
-          </div>
+          <Alert><Lock className="h-4 w-4" /><AlertDescription>This remark has already been submitted and cannot be edited.</AlertDescription></Alert>
         )}
 
-        <h2 className="text-lg font-semibold text-hh-text">Job Rating</h2>
-
-        <FormRow label="Rate">
-          <div className="form-cell flex-1">
-            <StarRating
-              rating={rating}
-              onChange={canEdit ? setRating : undefined}
-              readOnly={!canEdit}
-            />
-          </div>
-        </FormRow>
-
-        <div className="flex gap-2">
-          <div className="form-label flex-shrink-0 w-48">Remarks</div>
-          <textarea
-            className="form-cell flex-1 h-24 resize-none py-2 outline-none text-sm"
-            placeholder={canEdit ? 'Add Remark' : 'No remarks yet'}
-            value={remarkText}
-            onChange={e => setRemarkText(e.target.value)}
-            readOnly={!canEdit}
-          />
-        </div>
-
-        {canEdit && !saved && (
-          <div className="flex">
-            <button onClick={handleSubmit} disabled={saving} className="btn-action px-8">
-              {saving ? 'Saving...' : 'Submit'}
-            </button>
-          </div>
-        )}
+        <Card>
+          <CardHeader><CardTitle>Rate this job</CardTitle></CardHeader>
+          <CardContent className="space-y-5">
+            <div className="flex flex-col gap-2">
+              <Label>Your rating</Label>
+              <StarRating rating={rating} onChange={canEdit ? setRating : undefined} readOnly={!canEdit} />
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="remark">Remarks</Label>
+              <Textarea id="remark" className="min-h-[120px]" placeholder={canEdit ? 'Add a remark…' : 'No remarks'}
+                value={remarkText} onChange={e => setRemarkText(e.target.value)} readOnly={!canEdit} />
+            </div>
+            {canEdit && !saved && (
+              <Button onClick={handleSubmit} disabled={saving} className="px-8">{saving ? 'Saving…' : 'Submit rating'}</Button>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </MainLayout>
   )

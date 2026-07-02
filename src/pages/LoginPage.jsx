@@ -2,12 +2,17 @@
 // The system detects the user's role from their username/password automatically.
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { Loader2 } from 'lucide-react'
 import AuthLayout from '../layouts/AuthLayout'
 import { useAuth } from '../contexts/AuthContext'
 import { ROLE_HOME_ROUTES } from '../constants/roles'
 import { createClient } from '@supabase/supabase-js'
 import { supabase } from '../../supabase/client'
 import { normalizeLoginEmail } from '../services/authService'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import ErrorBanner from '../components/ErrorBanner'
 
 // Service-role client for username lookup (anon RLS can't query all users)
 const _svcKey = import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY
@@ -99,7 +104,7 @@ export default function LoginPage() {
       }
 
       // AuthContext picks up the session change and sets the role → redirect via useEffect
-    } catch (err) {
+    } catch {
       setPassword('')
       setError('Login failed. Please try again.')
     } finally {
@@ -113,68 +118,56 @@ export default function LoginPage() {
 
   return (
     <AuthLayout>
-      <h2 className="text-white text-lg font-medium">Login</h2>
-
-      <div className="flex flex-col gap-4 w-full max-w-[280px]">
-        {/* Username */}
-        <input
-          type="text"
-          placeholder="Username"
-          value={username}
-          onChange={e => { setUsername(e.target.value); setFieldErrors(p => ({ ...p, username: '' })); setError('') }}
-          onKeyDown={handleKeyDown}
-          className={`
-            w-full bg-white rounded-pill px-5 h-12 text-sm text-center outline-none
-            placeholder-hh-placeholder text-hh-text
-            ${fieldErrors.username ? 'border-2 border-hh-error' : 'border-2 border-transparent'}
-            focus:border-hh-green transition-colors
-          `}
-        />
-
-        {/* Password */}
-        <input
-          type="password"
-          placeholder="Password"
-          value={password}
-          onChange={e => { setPassword(e.target.value); setFieldErrors(p => ({ ...p, password: '' })); setError('') }}
-          onKeyDown={handleKeyDown}
-          className={`
-            w-full bg-white rounded-pill px-5 h-12 text-sm text-center outline-none
-            placeholder-hh-placeholder text-hh-text
-            ${fieldErrors.password ? 'border-2 border-hh-error' : 'border-2 border-transparent'}
-            focus:border-hh-green transition-colors
-          `}
-        />
-
-        {/* Login button */}
-        <button
-          onClick={handleLogin}
-          disabled={loading}
-          className="btn-login disabled:opacity-60"
-        >
-          {loading ? (
-            <span className="flex items-center gap-2 justify-center">
-              <span className="w-4 h-4 border-2 border-hh-text border-t-transparent rounded-full animate-spin" />
-              Logging in...
-            </span>
-          ) : 'Login'}
-        </button>
-
-        {/* Error message */}
-        {error && (
-          <p className="text-hh-error text-xs text-center bg-red-50 rounded-hh px-3 py-2">
-            {error}
-          </p>
-        )}
+      <div className="mb-6 flex flex-col gap-1">
+        <h2 className="text-xl font-bold tracking-tight text-foreground">Welcome back</h2>
+        <p className="text-sm text-muted-foreground">Sign in to continue to your dashboard.</p>
       </div>
 
-      {/* Forgot password */}
-      <button
-        onClick={() => navigate('/forgot-password')}
-        className="text-white/70 text-xs hover:text-white transition-colors"
-      >
-        Forgot password?
-      </button>
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="username">Username</Label>
+          <Input
+            id="username"
+            type="text"
+            placeholder="e.g. Admin1"
+            value={username}
+            autoFocus
+            onChange={e => { setUsername(e.target.value); setFieldErrors(p => ({ ...p, username: '' })); setError('') }}
+            onKeyDown={handleKeyDown}
+            className={fieldErrors.username ? 'border-destructive focus-visible:ring-destructive/30' : ''}
+          />
+          {fieldErrors.username && <p className="text-xs text-destructive">{fieldErrors.username}</p>}
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center justify-between">
+            <Label htmlFor="password">Password</Label>
+            <button
+              type="button"
+              onClick={() => navigate('/forgot-password')}
+              className="text-xs font-medium text-primary hover:underline"
+            >
+              Forgot password?
+            </button>
+          </div>
+          <Input
+            id="password"
+            type="password"
+            placeholder="••••••••"
+            value={password}
+            onChange={e => { setPassword(e.target.value); setFieldErrors(p => ({ ...p, password: '' })); setError('') }}
+            onKeyDown={handleKeyDown}
+            className={fieldErrors.password ? 'border-destructive focus-visible:ring-destructive/30' : ''}
+          />
+          {fieldErrors.password && <p className="text-xs text-destructive">{fieldErrors.password}</p>}
+        </div>
+
+        {error && <ErrorBanner message={error} onClose={() => setError('')} />}
+
+        <Button onClick={handleLogin} disabled={loading} size="lg" className="w-full">
+          {loading ? (<><Loader2 className="h-4 w-4 animate-spin" /> Signing in…</>) : 'Sign In'}
+        </Button>
+      </div>
     </AuthLayout>
   )
 }

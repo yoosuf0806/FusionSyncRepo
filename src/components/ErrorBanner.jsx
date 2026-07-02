@@ -1,11 +1,21 @@
+import { AlertCircle, X } from 'lucide-react'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+
 export default function ErrorBanner({ message, onClose }) {
   if (!message) return null
   return (
-    <div className="bg-red-50 border border-hh-error text-hh-error text-sm rounded-hh px-4 py-2.5 flex items-center justify-between gap-3">
-      <span>{message}</span>
+    <Alert variant="destructive" className="flex items-start gap-2 pr-10">
+      <AlertCircle className="h-4 w-4 mt-0.5" />
+      <AlertDescription className="flex-1">{message}</AlertDescription>
       {onClose && (
-        <button onClick={onClose} className="text-hh-error hover:text-red-700 font-bold flex-shrink-0">✕</button>
+        <button
+          onClick={onClose}
+          className="absolute right-3 top-3 text-destructive/70 hover:text-destructive transition-colors"
+          aria-label="Dismiss"
+        >
+          <X className="h-4 w-4" />
+        </button>
       )}
-    </div>
+    </Alert>
   )
 }

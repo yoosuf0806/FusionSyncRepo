@@ -31,6 +31,9 @@ import ResetPassword  from './pages/shared/ResetPassword'
 import HelpeeHome from './pages/helpee/HelpeeHome'
 import MyDay from './pages/helper/MyDay'
 import ManageAttendance from './pages/admin/ManageAttendance'
+import Roster from './pages/admin/Roster'
+import Payroll from './pages/admin/Payroll'
+import Reports from './pages/admin/Reports'
 
 // ── Role arrays ───────────────────────────────────────────────────────────
 const ADMIN_ONLY      = ['admin']
@@ -106,6 +109,13 @@ export default function App() {
           <Route path="/admin/setup"
             element={<RoleRoute allowedRoles={ADMIN_ONLY}><ManageSetup /></RoleRoute>} />
 
+          <Route path="/admin/roster"
+            element={<RoleRoute allowedRoles={ADMIN_ONLY}><Roster /></RoleRoute>} />
+          <Route path="/admin/payroll"
+            element={<RoleRoute allowedRoles={ADMIN_ONLY}><Payroll /></RoleRoute>} />
+          <Route path="/admin/reports"
+            element={<RoleRoute allowedRoles={ADMIN_ONLY}><Reports /></RoleRoute>} />
+
           <Route path="/admin/departments"
             element={<RoleRoute allowedRoles={ADMIN_ONLY}><ManageDepartments /></RoleRoute>} />
           <Route path="/admin/departments/new"
@@ -148,6 +158,9 @@ export default function App() {
 
           <Route path="/supervisor/job-specs"
             element={<RoleRoute allowedRoles={SUPERVISOR_ONLY}><ManageJobSpecs /></RoleRoute>} />
+
+          <Route path="/supervisor/roster"
+            element={<RoleRoute allowedRoles={SUPERVISOR_ONLY}><Roster /></RoleRoute>} />
 
           <Route path="/supervisor/search-users"
             element={<RoleRoute allowedRoles={SUPERVISOR_ONLY}><SearchUsers /></RoleRoute>} />
