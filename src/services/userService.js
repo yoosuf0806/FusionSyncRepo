@@ -65,6 +65,35 @@ export async function getUserByAuthId(authId) {
   return data
 }
 
+/**
+ * Keep the department_users join table in sync with users.department_id.
+ * The Department screen reads membership from department_users, but the user
+ * form only sets the column — so a user created/edited here would be invisible
+ * on the Department screen. This reconciles the join table: ensures a row for
+ * the current department and removes any stale rows for other departments.
+ * (One department per worker/supervisor.)
+ */
+async function syncDepartmentMembership(userId, departmentId) {
+  try {
+    // Remove any join rows that don't match the current department
+    if (departmentId) {
+      await supabase.from('department_users')
+        .delete().eq('user_id', userId).neq('department_id', departmentId)
+      // Ensure a row exists for the current department
+      const { data: existing } = await supabase.from('department_users')
+        .select('id').eq('user_id', userId).eq('department_id', departmentId).maybeSingle()
+      if (!existing) {
+        await supabase.from('department_users').insert({ user_id: userId, department_id: departmentId })
+      }
+    } else {
+      // No department (admin/helpee) → clear any membership rows
+      await supabase.from('department_users').delete().eq('user_id', userId)
+    }
+  } catch (e) {
+    console.warn('syncDepartmentMembership:', e?.message || e)
+  }
+}
+
 export async function createUser(userData, password) {
   const contactEmail = userData.user_email?.trim() || null
   // SSO auth email is derived from user_name
@@ -110,6 +139,9 @@ export async function createUser(userData, password) {
 
   if (error) throw error
 
+  // Keep the department_users join table in sync so the Department screen shows this user
+  await syncDepartmentMembership(data.id, userData.department_id || null)
+
   // Send welcome notification — ignore errors so user creation still succeeds
   await supabase.from('notifications').insert({
     recipient_user_id: data.id,
@@ -151,6 +183,9 @@ export async function updateUser(id, userData) {
     })
     .eq('id', id)
   if (error) throw error
+
+  // Keep department_users join in sync with the (possibly changed) department
+  await syncDepartmentMembership(id, userData.department_id || null)
 
   const data = { id, ...userData }
 
