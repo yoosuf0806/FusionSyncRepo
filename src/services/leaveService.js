@@ -269,17 +269,29 @@ export async function getOpenReplacementFlags() {
   const jobIds = [...new Set(flags.map(f => f.job_id))]
   const userIds = [...new Set(flags.map(f => f.absent_user_id))]
   const [{ data: jobs }, { data: users }] = await Promise.all([
-    supabase.from('jobs').select('id, job_id, job_name, status').in('id', jobIds),
+    supabase.from('jobs').select('id, job_id, job_name, status, job_category, job_date, job_from_date, job_to_date').in('id', jobIds),
     supabase.from('users').select('id, user_name').in('id', userIds),
   ])
   const jMap = {}; (jobs || []).forEach(j => { jMap[j.id] = j })
   const uMap = {}; (users || []).forEach(u => { uMap[u.id] = u })
 
-  // Only surface replacements for jobs that are still active/ongoing.
+  const today = new Date().toISOString().slice(0, 10)
+
+  // A replacement is only actionable if:
+  //  • the job isn't closed/cancelled, AND
+  //  • the absence date is today or later (you can't staff a past shift), AND
+  //  • the job hasn't already fully ended (expired).
   const CLOSED = ['job_closed', 'payment_confirmed', 'cancelled']
+  const jobEndDate = (j) => j?.job_category === 'one-time'
+    ? (j.job_date || null)
+    : (j.job_to_date || j.job_from_date || null)
   const open = flags.filter(f => {
-    const st = jMap[f.job_id]?.status
-    return st && !CLOSED.includes(st)
+    const j = jMap[f.job_id]
+    if (!j || CLOSED.includes(j.status)) return false
+    if (f.flag_date < today) return false                 // past absence — not actionable
+    const end = jobEndDate(j)
+    if (end && end < today) return false                  // expired job
+    return true
   })
 
   // Group by job + absent worker, then collapse CONSECUTIVE dates into ranges.
