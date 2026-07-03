@@ -1153,7 +1153,7 @@ export async function createWorkerReplacement({
   try {
     await supabase.from('job_associated_users').upsert({
       job_id: jobId, user_id: replacementUserId, role,
-    }, { onConflict: 'job_id,user_id,role' })
+    }, { onConflict: 'job_id,user_id' })
   } catch (e) {
     console.warn('Associating replacement worker failed:', e?.message || e)
   }

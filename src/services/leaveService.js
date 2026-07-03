@@ -207,14 +207,19 @@ export async function assignReplacement(group, replacementUserId, fromDate, toDa
   const from = fromDate || group.from_date
   const to = toDate || group.to_date
 
-  // Add B to the job first
-  try {
-    await supabase.from('job_associated_users').upsert({
-      job_id: jobId, user_id: replacementUserId, role: 'helper',
-    }, { onConflict: 'job_id,user_id,role' })
-  } catch (e) {
-    console.warn('Associating replacement worker failed:', e?.message || e)
-  }
+  // Match the absent person's role: a supervisor is covered by a supervisor
+  // (recorded as 'supervisor'), a worker by a worker (recorded as 'helper').
+  const { data: absent } = await supabase
+    .from('users').select('user_type').eq('id', group.absent_user_id).single()
+  const role = absent?.user_type === 'supervisor' ? 'supervisor' : 'helper'
+
+  // Add B to the job first — this MUST succeed, or the replacement is
+  // meaningless (B wouldn't appear on the job). Surface the error rather than
+  // swallowing it, so a failed association doesn't look like success.
+  const { error: assocErr } = await supabase.from('job_associated_users').upsert({
+    job_id: jobId, user_id: replacementUserId, role,
+  }, { onConflict: 'job_id,user_id' })
+  if (assocErr) throw new Error(`Could not add the replacement worker to the job: ${assocErr.message}`)
 
   // Fill the open per-date flags that fall within the chosen window.
   // (Re-query rather than trusting the passed ids, since the supervisor may
