@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, Fragment } from 'react'
 import MainLayout from '../../layouts/MainLayout'
 import { getAllAttendanceRecords } from '../../services/jobService'
 import { exportPayrollCSV, exportPayrollExcel, exportPayrollPDF } from '../../utils/payrollExport'
@@ -21,6 +21,7 @@ export default function Payroll() {
   const [dateTo, setDateTo] = useState(todayStr())
   const [rows, setRows] = useState(null)
   const [error, setError] = useState('')
+  const [expanded, setExpanded] = useState(null)   // index of worker whose jobs are shown
 
   const load = useCallback(async () => {
     setRows(null); setError('')
@@ -30,16 +31,25 @@ export default function Payroll() {
 
   useEffect(() => { load() }, [load])
 
-  // Aggregate approved attendance per worker
+  // Aggregate approved attendance per worker, keeping the per-job breakdown
   const summary = useMemo(() => {
     const byWorker = {}
     for (const r of rows || []) {
       if (r.att_status && r.att_status !== 'approved' && r.att_status !== 'completed') continue
       const key = r.helper_id || r.worker_name
-      const w = (byWorker[key] ||= { worker_name: r.worker_name || '—', worker_type: r.worker_type || 'helper', days: 0, hours: 0, pay: 0 })
+      const w = (byWorker[key] ||= { worker_name: r.worker_name || '—', worker_type: r.worker_type || 'helper', days: 0, hours: 0, pay: 0, jobs: [] })
+      const hrs = Number(r.total_hours) || 0
+      const pay = Number(r.rate_for_day) || 0
       w.days += 1
-      w.hours += Number(r.total_hours) || 0
-      w.pay += Number(r.rate_for_day) || 0
+      w.hours += hrs
+      w.pay += pay
+      w.jobs.push({
+        date: r.attendance_date,
+        job_code: r.job_code || '—',
+        job_name: r.job_name || '—',
+        hours: Math.round(hrs * 100) / 100,
+        pay: Math.round(pay * 100) / 100,
+      })
     }
     return Object.values(byWorker)
       .map(w => ({ ...w, hours: Math.round(w.hours * 100) / 100, pay: Math.round(w.pay * 100) / 100 }))
@@ -94,13 +104,54 @@ export default function Payroll() {
                 </TableHeader>
                 <TableBody>
                   {summary.map((w, i) => (
-                    <TableRow key={i}>
-                      <TableCell className="font-medium text-foreground">{w.worker_name}</TableCell>
-                      <TableCell><Badge variant="muted" className="capitalize">{w.worker_type}</Badge></TableCell>
-                      <TableCell className="text-right tabular-nums text-muted-foreground">{w.days}</TableCell>
-                      <TableCell className="text-right tabular-nums">{w.hours}</TableCell>
-                      <TableCell className="text-right font-semibold tabular-nums text-primary">{money(w.pay)}</TableCell>
-                    </TableRow>
+                    <Fragment key={i}>
+                      <TableRow>
+                        <TableCell className="font-medium text-foreground">{w.worker_name}</TableCell>
+                        <TableCell><Badge variant="muted" className="capitalize">{w.worker_type}</Badge></TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          <button
+                            onClick={() => setExpanded(expanded === i ? null : i)}
+                            className="inline-flex items-center gap-1 text-primary hover:underline"
+                            title="View the jobs counted in this payroll">
+                            {w.days}
+                            <span className="text-xs">{expanded === i ? '▲' : '▼'}</span>
+                          </button>
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">{w.hours}</TableCell>
+                        <TableCell className="text-right font-semibold tabular-nums text-primary">{money(w.pay)}</TableCell>
+                      </TableRow>
+                      {expanded === i && (
+                        <TableRow className="bg-muted/40 hover:bg-muted/40">
+                          <TableCell colSpan={5} className="p-0">
+                            <div className="px-4 py-3">
+                              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                Jobs counted for {w.worker_name}
+                              </div>
+                              <table className="w-full text-sm">
+                                <thead>
+                                  <tr className="text-left text-xs text-muted-foreground">
+                                    <th className="py-1 pr-4 font-medium">Date</th>
+                                    <th className="py-1 pr-4 font-medium">Job</th>
+                                    <th className="py-1 pr-4 text-right font-medium">Hours</th>
+                                    <th className="py-1 text-right font-medium">Pay</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {w.jobs.map((j, k) => (
+                                    <tr key={k} className="border-t border-border/50">
+                                      <td className="py-1 pr-4 tabular-nums text-muted-foreground">{j.date}</td>
+                                      <td className="py-1 pr-4"><span className="text-primary">{j.job_code}</span> {j.job_name}</td>
+                                      <td className="py-1 pr-4 text-right tabular-nums">{j.hours}</td>
+                                      <td className="py-1 text-right tabular-nums">{money(j.pay)}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </Fragment>
                   ))}
                 </TableBody>
               </Table>

@@ -818,10 +818,49 @@ export async function checkOutOfJob(rowId, { } = {}) {
   const now = new Date()
   const loc = await captureLocation()
 
+  // Fetch the attendance row so we can compute hours and snapshot the rate.
+  const { data: att, error: attErr } = await supabase
+    .from('job_attendance')
+    .select('id, job_id, checkin_at, in_time')
+    .eq('id', rowId)
+    .single()
+  if (attErr) throw attErr
+
+  // Hours worked = checkout - checkin (fallback to 0 if check-in missing)
+  let totalHours = 0
+  if (att?.checkin_at) {
+    const diffMs = now.getTime() - new Date(att.checkin_at).getTime()
+    totalHours = Math.max(0, Math.round((diffMs / 3600000) * 100) / 100)
+  }
+
+  // Snapshot the effective rate NOW (at checkout), from the job's job type.
+  // Rule: use hourly_rate if set (>0), else fall back to daily_rate.
+  // Freezing it here means a later rate change won't retroactively alter this
+  // shift's pay — each job is paid at the rate that applied when it was done.
+  let rateForDay = 0
+  if (att?.job_id) {
+    const { data: job } = await supabase
+      .from('jobs').select('job_type_id').eq('id', att.job_id).single()
+    if (job?.job_type_id) {
+      const { data: spec } = await supabase
+        .from('job_specifications')
+        .select('hourly_rate, daily_rate')
+        .eq('id', job.job_type_id)
+        .single()
+      const hourly = Number(spec?.hourly_rate) || 0
+      const daily = Number(spec?.daily_rate) || 0
+      rateForDay = hourly > 0 ? hourly * totalHours : daily
+    }
+  }
+
   const payload = {
     checkout_at: now.toISOString(),
     checkout_latitude: loc?.lat ?? null,
     checkout_longitude: loc?.lng ?? null,
+    out_time: now.toTimeString().slice(0, 8),
+    total_hours: totalHours,
+    rate_for_day: rateForDay,
+    att_status: 'completed',
   }
   // If checkout location is missing, ensure the flag is set too
   if (loc === null) payload.location_missing = true
