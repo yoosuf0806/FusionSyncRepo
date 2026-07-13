@@ -83,7 +83,7 @@ export default function Reports() {
                   <span className="text-muted-foreground">Outstanding {money(data.revenue.outstanding)}</span>
                 </div>
                 {data.revenue.collectionRate === 0 && data.revenue.invoiced > 0 && (
-                  <p className="rounded-lg bg-warning/10 px-3 py-2 text-xs text-warning">No payments recorded yet — the invoice→paid loop isn't closing. Consider online payment + reminders.</p>
+                  <p className="rounded-lg bg-warning/10 px-3 py-2 text-xs text-warning">No jobs have reached Payment Confirmed or Job Closed yet, so nothing is counted as collected. Move jobs through to payment to close the loop.</p>
                 )}
               </CardContent>
             </Card>

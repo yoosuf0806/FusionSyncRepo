@@ -36,8 +36,21 @@ export async function getReports() {
 
   const byCategory = count(jobs, j => j.job_category === 'frequent' ? 'Recurring' : 'One-time')
 
+  // Map each job to its status so we can treat invoices for jobs that reached
+  // 'Payment Confirmed' or 'Job Closed' as paid/collected — the invoice→paid
+  // loop is driven by job lifecycle here rather than a manually-recorded
+  // payment field (which isn't being used).
+  const jobStatusById = {}
+  jobs.forEach(j => { jobStatusById[j.id] = j.status })
+  const PAID_STATUSES = ['payment_confirmed', 'job_closed']
+
   const totalInvoiced = invoices.reduce((s, i) => s + (Number(i.amount) || 0), 0)
-  const totalCollected = invoices.reduce((s, i) => s + (Number(i.amount_paid) || 0), 0)
+  const totalCollected = invoices.reduce((s, i) => {
+    const paidByStatus = PAID_STATUSES.includes(jobStatusById[i.job_id])
+    // Count the full invoice amount as collected when the job is paid/closed;
+    // otherwise fall back to any manually recorded amount_paid.
+    return s + (paidByStatus ? (Number(i.amount) || 0) : (Number(i.amount_paid) || 0))
+  }, 0)
   const outstanding = Math.max(totalInvoiced - totalCollected, 0)
   const collectionRate = totalInvoiced > 0 ? Math.round((totalCollected / totalInvoiced) * 100) : 0
 
