@@ -6,6 +6,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import { getJobs, getJobsForUser, getJobsForHelpee, deleteJob, isJobExpired } from '../../services/jobService'
 import { getOpenReplacementFlags } from '../../services/leaveService'
 import SearchInput from '../../components/SearchInput'
+import { exportTableCSV, exportTableExcel } from '../../utils/tableExport'
 import ConfirmModal from '../../components/ConfirmModal'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import EmptyState from '../../components/EmptyState'
@@ -101,6 +102,25 @@ export default function ManageJobs() {
 
   const formatDate = (d) => d ? new Date(d).toLocaleDateString() : '—'
 
+  const exportJobs = (fmt) => {
+    const cols = [
+      { key: 'job_id', label: 'ID' },
+      { key: 'job_name', label: 'Name' },
+      { key: 'type', label: 'Type' },
+      { key: 'status', label: 'Status' },
+      { key: 'date', label: 'Date' },
+    ]
+    const data = filteredJobs.map(j => ({
+      job_id: j.job_id,
+      job_name: j.job_name,
+      type: j.job_category === 'one-time' ? 'One-time' : 'Recurring',
+      status: (j.status || '').replace(/_/g, ' '),
+      date: formatDate(j.job_category === 'one-time' ? j.job_date : j.job_from_date),
+    }))
+    if (fmt === 'csv') exportTableCSV(cols, data, 'jobs')
+    else exportTableExcel(cols, data, 'jobs', 'Jobs')
+  }
+
   return (
     <MainLayout title="Manage Jobs">
       <div className="space-y-4">
@@ -115,9 +135,17 @@ export default function ManageJobs() {
             />
           )}
           {(canManage || isHelpee) && (
-            <Button onClick={() => setShowTypeModal(true)} className="ml-auto">
-              <Plus className="h-4 w-4" /> New Job
-            </Button>
+            <div className="ml-auto flex items-center gap-2">
+              {isAdmin && filteredJobs.length > 0 && (
+                <>
+                  <Button variant="outline" size="sm" onClick={() => exportJobs('csv')}>CSV</Button>
+                  <Button variant="outline" size="sm" onClick={() => exportJobs('excel')}>Excel</Button>
+                </>
+              )}
+              <Button onClick={() => setShowTypeModal(true)}>
+                <Plus className="h-4 w-4" /> New Job
+              </Button>
+            </div>
           )}
         </div>
 
@@ -171,7 +199,7 @@ export default function ManageJobs() {
                     <TableCell>
                       <Badge variant={statusVariant(job.status)}>{JOB_STATUS_LABELS[job.status] || job.status}</Badge>
                     </TableCell>
-                    <TableCell className="text-muted-foreground">{formatDate(job.job_from_date)}</TableCell>
+                    <TableCell className="text-muted-foreground">{formatDate(job.job_category === 'one-time' ? job.job_date : job.job_from_date)}</TableCell>
                     <TableCell className="text-right" onClick={e => e.stopPropagation()}>
                       <div className="flex items-center justify-end gap-1">
                         <Button variant="ghost" size="icon" className="h-8 w-8" title="View / Edit"

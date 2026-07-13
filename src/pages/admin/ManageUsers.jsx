@@ -6,6 +6,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import { userNewPath, userEditPath } from '../../constants/jobPaths'
 import { getUsers, deleteUser, checkUserActiveJobs } from '../../services/userService'
 import SearchInput from '../../components/SearchInput'
+import { exportTableCSV, exportTableExcel } from '../../utils/tableExport'
 import ConfirmModal from '../../components/ConfirmModal'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import EmptyState from '../../components/EmptyState'
@@ -74,6 +75,27 @@ export default function ManageUsers() {
 
   const toggleRoleFilter = (r) => setRoleFilter(prev => prev === r ? '' : r)
 
+  const exportUsers = (fmt) => {
+    const cols = [
+      { key: 'user_id', label: 'ID' },
+      { key: 'user_name', label: 'Name' },
+      { key: 'user_type', label: 'Type' },
+      { key: 'user_email', label: 'Email' },
+      { key: 'user_phone', label: 'Phone' },
+      { key: 'department', label: 'Department' },
+    ]
+    const data = users.map(u => ({
+      user_id: u.user_id,
+      user_name: u.user_name,
+      user_type: u.user_type,
+      user_email: u.user_email || '',
+      user_phone: u.user_phone || '',
+      department: u.departments?.department_name || '',
+    }))
+    if (fmt === 'csv') exportTableCSV(cols, data, 'users')
+    else exportTableExcel(cols, data, 'users', 'Users')
+  }
+
   return (
     <MainLayout title="Manage Users">
       <div className="space-y-4">
@@ -97,9 +119,17 @@ export default function ManageUsers() {
             ))}
           </div>
           {isAdmin && (
-            <Button className="ml-auto" onClick={() => navigate(userNewPath(role))}>
-              <Plus className="h-4 w-4" /> New User
-            </Button>
+            <div className="ml-auto flex items-center gap-2">
+              {users.length > 0 && (
+                <>
+                  <Button variant="outline" size="sm" onClick={() => exportUsers('csv')}>CSV</Button>
+                  <Button variant="outline" size="sm" onClick={() => exportUsers('excel')}>Excel</Button>
+                </>
+              )}
+              <Button onClick={() => navigate(userNewPath(role))}>
+                <Plus className="h-4 w-4" /> New User
+              </Button>
+            </div>
           )}
         </div>
 
