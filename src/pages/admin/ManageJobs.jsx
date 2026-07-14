@@ -81,6 +81,14 @@ export default function ManageJobs() {
   const filteredJobs = jobs.filter(job => {
     if (typeFilter.length && !typeFilter.includes(job.job_category)) return false
     if (statusFilter2.length && !statusFilter2.includes(job.status)) return false
+    // Text search — client-side so it also works for helper/helpee lists
+    // (admin/supervisor lists are already server-filtered, so this is a no-op
+    //  for them beyond narrowing the already-fetched rows).
+    const q = (search || '').trim().toLowerCase()
+    if (q) {
+      const hay = `${job.job_id} ${job.job_name}`.toLowerCase()
+      if (!hay.includes(q)) return false
+    }
     return true
   })
 
@@ -126,27 +134,25 @@ export default function ManageJobs() {
       <div className="space-y-4">
 
         <div className="flex flex-wrap items-center justify-between gap-3">
-          {canManage && (
-            <SearchInput
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Search by ID or name"
-              className="w-full max-w-xs"
-            />
-          )}
-          {(canManage || isHelpee) && (
-            <div className="ml-auto flex items-center gap-2">
-              {isAdmin && filteredJobs.length > 0 && (
-                <>
-                  <Button variant="outline" size="sm" onClick={() => exportJobs('csv')}>CSV</Button>
-                  <Button variant="outline" size="sm" onClick={() => exportJobs('excel')}>Excel</Button>
-                </>
-              )}
+          <SearchInput
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search by ID or name"
+            className="w-full max-w-xs"
+          />
+          <div className="ml-auto flex items-center gap-2">
+            {filteredJobs.length > 0 && (
+              <>
+                <Button variant="outline" size="sm" onClick={() => exportJobs('csv')}>CSV</Button>
+                <Button variant="outline" size="sm" onClick={() => exportJobs('excel')}>Excel</Button>
+              </>
+            )}
+            {(canManage || isHelpee) && (
               <Button onClick={() => setShowTypeModal(true)}>
                 <Plus className="h-4 w-4" /> New Job
               </Button>
-            </div>
-          )}
+            )}
+          </div>
         </div>
 
         {error && <ErrorBanner message={error} onClose={() => setError('')} />}
