@@ -50,6 +50,7 @@ export default function ManageAttendance() {
   const [search, setSearch] = useState('')
   const [editing, setEditing] = useState(null)
   const [leaves, setLeaves] = useState(null)
+  const [leaveStatus, setLeaveStatus] = useState('pending')
   const [flags, setFlags] = useState(null)
   const [onLeave, setOnLeave] = useState(null)
   const [replacing, setReplacing] = useState(null)
@@ -64,7 +65,7 @@ export default function ManageAttendance() {
   }
   useEffect(() => { load() }, [dateFrom, dateTo]) // eslint-disable-line
 
-  const loadLeaves = async () => { setLeaves(null); try { setLeaves(await getLeaveRequestsToReview({ viewerType, statusFilter: 'pending' })) } catch { setLeaves([]) } }
+  const loadLeaves = async () => { setLeaves(null); try { setLeaves(await getLeaveRequestsToReview({ viewerType, statusFilter: leaveStatus === 'all' ? null : leaveStatus })) } catch { setLeaves([]) } }
   const loadFlags = async () => { setFlags(null); try { setFlags(await getOpenReplacementFlags()) } catch { setFlags([]) } }
   const loadOnLeave = async () => { setOnLeave(null); try { setOnLeave(await getUsersOnLeave()) } catch { setOnLeave([]) } }
 
@@ -73,6 +74,8 @@ export default function ManageAttendance() {
     if (tab === 'replacements' && flags === null) loadFlags()
     if (tab === 'onleave' && onLeave === null) loadOnLeave()
   }, [tab]) // eslint-disable-line
+
+  useEffect(() => { if (tab === 'leave') loadLeaves() }, [leaveStatus]) // eslint-disable-line
 
   const handleReview = async (leaveId, decision) => {
     try { await reviewLeaveRequest(leaveId, decision, user?.id, null); await loadLeaves(); setFlags(null) }
@@ -163,7 +166,15 @@ export default function ManageAttendance() {
             )}
           </TabsContent>
 
-          <TabsContent value="leave"><LeaveReviewList leaves={leaves} onReview={handleReview} /></TabsContent>
+          <TabsContent value="leave" className="space-y-4">
+            <div className="flex gap-2">
+              {['pending', 'approved', 'rejected', 'all'].map(s => (
+                <Button key={s} size="sm" variant={leaveStatus === s ? 'default' : 'outline'}
+                  className="capitalize" onClick={() => setLeaveStatus(s)}>{s}</Button>
+              ))}
+            </div>
+            <LeaveReviewList leaves={leaves} status={leaveStatus} onReview={handleReview} />
+          </TabsContent>
           <TabsContent value="onleave"><OnLeaveList rows={onLeave} /></TabsContent>
 
           <TabsContent value="replacements" className="space-y-4">
@@ -184,11 +195,12 @@ export default function ManageAttendance() {
   )
 }
 
-function LeaveReviewList({ leaves, onReview }) {
+function LeaveReviewList({ leaves, status, onReview }) {
   if (leaves === null) return <LoadingSpinner />
-  if (leaves.length === 0) return <Card className="py-16 text-center text-sm text-muted-foreground">No pending leave requests.</Card>
+  if (leaves.length === 0) return <Card className="py-16 text-center text-sm text-muted-foreground">No {status && status !== 'all' ? status : ''} leave requests.</Card>
   const reasonLabel = { sick: 'Sick', personal: 'Personal', emergency: 'Emergency', other: 'Other' }
   const durLabel = { full_day: 'Full Day', first_half: 'Morning', second_half: 'Afternoon' }
+  const statusBadge = { pending: 'secondary', approved: 'default', rejected: 'destructive' }
   return (
     <div className="space-y-3">
       {leaves.map(l => (
@@ -197,16 +209,19 @@ function LeaveReviewList({ leaves, onReview }) {
             <div className="flex items-center gap-2">
               <span className="font-semibold text-foreground">{l.requester_name}</span>
               {l.requester_type === 'supervisor' && <Badge variant="secondary" className="text-[10px]">SUP</Badge>}
+              <Badge variant={statusBadge[l.status] || 'secondary'} className="text-[10px] capitalize">{l.status}</Badge>
             </div>
             <p className="mt-0.5 text-sm text-muted-foreground">
               {l.leave_date}{l.leave_to_date && l.leave_to_date !== l.leave_date ? ` – ${l.leave_to_date}` : ''} · {durLabel[l.duration]} · {reasonLabel[l.reason]}
             </p>
             {l.note && <p className="mt-1 text-xs italic text-muted-foreground">"{l.note}"</p>}
           </div>
-          <div className="flex gap-2">
-            <Button variant="outline" className="text-destructive hover:text-destructive" onClick={() => onReview(l.id, 'reject')}>Reject</Button>
-            <Button onClick={() => onReview(l.id, 'approve')}>Approve</Button>
-          </div>
+          {l.status === 'pending' && (
+            <div className="flex gap-2">
+              <Button variant="outline" className="text-destructive hover:text-destructive" onClick={() => onReview(l.id, 'reject')}>Reject</Button>
+              <Button onClick={() => onReview(l.id, 'approve')}>Approve</Button>
+            </div>
+          )}
         </Card>
       ))}
     </div>
