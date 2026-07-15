@@ -9,7 +9,7 @@ import {
   getJobById, createJob, updateJob, updateJobStatus,
   saveInvoice, uploadInvoiceAttachment, upsertAssociatedUser, removeAssociatedUser,
   getJobMessages, postJobMessage, notifyHelpersAssignedToJob,
-  autoCreateOrUpdateInvoice, checkWorkerAvailability,
+  autoCreateOrUpdateInvoice, checkWorkerAvailability, calculateInvoiceAmountFromJobSchedule,
   getAvailableReplacementWorkers, createWorkerReplacement, getJobWorkerStatuses,
 } from '../../services/jobService'
 import { getJobSpecs, getQuestionsForSpec } from '../../services/jobSpecService'
@@ -79,8 +79,24 @@ function InvoiceModal({ jobId, existing, onSave, onClose }) {
   const [file, setFile] = useState(null)
   const [saving, setSaving] = useState(false)
   const [uploadProgress, setUploadProgress] = useState('')
+  const [suggested, setSuggested] = useState(null)   // schedule-based suggestion
   const ACCEPTED = '.pdf,.doc,.docx,.png,.jpg,.jpeg,.xls,.xlsx'
   const setF = (k, v) => setForm(p => ({ ...p, [k]: v }))
+
+  // For a NEW invoice, suggest the schedule-based amount (workdays × hours ×
+  // workers × rate). Pre-fills the Amount field; the supervisor can override.
+  useEffect(() => {
+    if (existing?.invoice_amount) return
+    let active = true
+    calculateInvoiceAmountFromJobSchedule(jobId)
+      .then(amt => {
+        if (!active || amt == null) return
+        setSuggested(amt)
+        setForm(p => (p.invoice_amount === '' ? { ...p, invoice_amount: amt } : p))
+      })
+      .catch(() => {})
+    return () => { active = false }
+  }, [jobId, existing])
 
   const handleSave = async () => {
     setSaving(true)
@@ -99,7 +115,16 @@ function InvoiceModal({ jobId, existing, onSave, onClose }) {
         <DialogHeader><DialogTitle>Invoice details</DialogTitle></DialogHeader>
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1.5"><Label>Amount</Label><Input type="number" value={form.invoice_amount} onChange={e => setF('invoice_amount', e.target.value)} /></div>
+            <div className="flex flex-col gap-1.5">
+              <Label>Amount</Label>
+              <Input type="number" value={form.invoice_amount} onChange={e => setF('invoice_amount', e.target.value)} />
+              {suggested != null && (
+                <button type="button" onClick={() => setF('invoice_amount', suggested)}
+                  className="text-left text-[11px] text-primary hover:underline">
+                  Suggested: {suggested} (from job schedule) — tap to use
+                </button>
+              )}
+            </div>
             <div className="flex flex-col gap-1.5"><Label>Currency</Label><Input value={form.invoice_currency} onChange={e => setF('invoice_currency', e.target.value)} /></div>
             <div className="flex flex-col gap-1.5"><Label>Date</Label><Input type="date" value={form.invoice_date} onChange={e => setF('invoice_date', e.target.value)} /></div>
             <div className="flex flex-col gap-1.5">
