@@ -151,7 +151,7 @@ export default function MyDay() {
               {unassigned === null ? <Spinner /> : unassigned.length === 0 ? (
                 <p className="py-12 text-center text-sm text-muted-foreground">Nothing needs assignment right now.</p>
               ) : unassigned.map(job => (
-                <Card key={job.id} onClick={() => navigate(`${jobBasePath}/${job.id}`)}
+                <Card key={job.id} onClick={() => navigate(`${jobBasePath}/${job.id}`, { state: { from: 'myday' } })}
                   className="cursor-pointer border-l-4 border-l-warning p-4 transition-shadow hover:shadow-hh-lg">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-semibold text-primary">{job.job_id}</span>

@@ -275,7 +275,7 @@ export default function JobForm() {
   useEffect(() => {
     if (!role || !id || !isEdit) return
     const canonical = jobDetailPath(role, id)
-    if (location.pathname !== canonical) navigate(canonical, { replace: true })
+    if (location.pathname !== canonical) navigate(canonical, { replace: true, state: location.state })
   }, [role, id, isEdit, location.pathname, navigate])
 
   useEffect(() => {
@@ -459,7 +459,14 @@ export default function JobForm() {
         const result = await createJob({ ...form, job_category: category }, answers, assocUsers, role)
         if (result && result.id) await autoCreateOrUpdateInvoice(result.id)
       }
-      navigate(jobsHubPath(role))
+      // If a supervisor opened this job from their My Day "Unassigned" tab,
+      // return there so they can keep working through the queue rather than
+      // being bounced to the Manage Jobs hub.
+      if (isSupervisor && location.state?.from === 'myday') {
+        navigate('/supervisor/my-day')
+      } else {
+        navigate(jobsHubPath(role))
+      }
     } catch (e) { setError(e.message) } finally { setSaving(false) }
   }
 
