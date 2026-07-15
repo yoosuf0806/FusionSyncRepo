@@ -111,7 +111,7 @@ export default function HelpeeHome() {
                       <TableCell className="font-medium text-foreground">{job.job_name}</TableCell>
                       <TableCell className="text-muted-foreground">{job.job_specifications?.job_type_name || '—'}</TableCell>
                       <TableCell><Badge variant={statusVariant(job.status)}>{JOB_STATUS_LABELS[job.status] || job.status}</Badge></TableCell>
-                      <TableCell className="text-muted-foreground">{formatDate(job.job_from_date)}</TableCell>
+                      <TableCell className="text-muted-foreground">{formatDate(job.job_category === 'one-time' ? job.job_date : job.job_from_date)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
