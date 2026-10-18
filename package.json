@@ -8,7 +8,8 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "bootstrap:admin": "node scripts/bootstrap-admin.mjs"
+    "bootstrap:admin": "node scripts/bootstrap-admin.mjs",
+    "diagnose:user": "node scripts/diagnose-user.mjs"
   },
   "dependencies": {
     "@radix-ui/react-avatar": "^1.2.1",
