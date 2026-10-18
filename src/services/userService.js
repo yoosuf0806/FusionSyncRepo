@@ -137,7 +137,18 @@ export async function createUser(userData, password) {
     is_active: true,
   }).select().single()
 
-  if (error) throw error
+  if (error) {
+    // The auth account was already created above. If the profile insert fails
+    // (e.g. RLS, a constraint, or a transient error) we'd be left with an
+    // "orphaned" auth user: login would succeed but no profile/role loads, so
+    // the account appears broken — and a retry would fail with "email already
+    // exists". Roll the auth user back (admin path only) so the next attempt
+    // starts clean. Swallow cleanup errors so the real insert error surfaces.
+    if (adminClient && authUserId) {
+      await adminClient.auth.admin.deleteUser(authUserId).catch(() => {})
+    }
+    throw error
+  }
 
   // Keep the department_users join table in sync so the Department screen shows this user
   await syncDepartmentMembership(data.id, userData.department_id || null)
