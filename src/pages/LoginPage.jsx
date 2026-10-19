@@ -6,20 +6,12 @@ import { Loader2 } from 'lucide-react'
 import AuthLayout from '../layouts/AuthLayout'
 import { useAuth } from '../contexts/AuthContext'
 import { ROLE_HOME_ROUTES } from '../constants/roles'
-import { createClient } from '@supabase/supabase-js'
 import { supabase } from '../../supabase/client'
 import { normalizeLoginEmail } from '../services/authService'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import ErrorBanner from '../components/ErrorBanner'
-
-// Service-role client for username lookup (anon RLS can't query all users)
-const _svcKey = import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY
-const _url     = import.meta.env.VITE_SUPABASE_URL
-const adminClient = (_svcKey && _svcKey.startsWith('eyJ'))
-  ? createClient(_url, _svcKey, { auth: { autoRefreshToken: false, persistSession: false } })
-  : null
 
 export default function LoginPage() {
   const [username, setUsername] = useState('')
@@ -51,39 +43,32 @@ export default function LoginPage() {
     try {
       const loginEmail = normalizeLoginEmail(username.trim())
 
-      // Step 1: Look up user by user_name (the login identifier).
-      const lookupClient = adminClient || supabase
-      const { data: matchedUsers, error: lookupErr } = await lookupClient
-        .from('users')
-        .select('id, user_name, is_active, auth_user_id')
-        .ilike('user_name', username.trim())
-        .limit(1)
+      // Step 1: Resolve the account via a SECURITY DEFINER RPC. This runs the
+      // privileged lookup server-side, so the login page needs no service-role
+      // key in the browser (which was both a reliability trap — a missing key
+      // broke every login with "no account found" — and a security hole).
+      const { data: rows, error: lookupErr } = await supabase
+        .rpc('resolve_login_identity', { p_identifier: username.trim() })
+      const identity = Array.isArray(rows) ? rows[0] : rows
 
-      if (lookupErr || !matchedUsers || matchedUsers.length === 0) {
+      if (lookupErr || !identity || !identity.found) {
         setPassword('')
         setError('Wrong username — no account found. Please check your username and try again.')
         return
       }
 
-      const matchedUser = matchedUsers[0]
-
-      if (!matchedUser.is_active) {
+      if (!identity.is_active) {
         setPassword('')
         setError('This account has been deactivated. Please contact your administrator.')
         return
       }
 
-      // Step 2: Get the actual current auth email via adminClient.
-      // This is critical — Supabase "Secure email change" can leave a pending new_email
-      // that hasn't been confirmed yet, meaning the stored auth email may differ from
-      // what normalizeLoginEmail() would derive from the current username.
-      let authEmail = loginEmail // fallback
-      if (adminClient && matchedUser.auth_user_id) {
-        const { data: authUser } = await adminClient.auth.admin.getUserById(matchedUser.auth_user_id)
-        if (authUser?.user?.email) {
-          authEmail = authUser.user.email
-        }
-      }
+      // Step 2: Prefer the real current auth email returned by the resolver.
+      // Supabase "Secure email change" can leave a pending new_email that isn't
+      // confirmed yet, so the stored auth email may differ from the one
+      // normalizeLoginEmail() derives from the username. Fall back to the
+      // derived email if the resolver couldn't read one.
+      const authEmail = identity.login_email || loginEmail
 
       // Step 3: Attempt sign in with the real current auth email
       const { error: signInError } = await supabase.auth.signInWithPassword({
