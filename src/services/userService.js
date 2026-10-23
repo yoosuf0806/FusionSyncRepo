@@ -224,11 +224,13 @@ export async function adminResetUserPassword(dbUserId, newPassword) {
     .eq('id', dbUserId)
     .single()
   if (fetchErr) throw fetchErr
+  if (!user?.auth_user_id) throw new Error('This user has no linked login account.')
 
-  if (!adminClient) throw new Error('Admin client not available. Service role key required.')
-
-  const { error } = await adminClient.auth.admin.updateUserById(user.auth_user_id, {
-    password: newPassword,
+  // Reset via a SECURITY DEFINER RPC that verifies the caller is an admin
+  // server-side, so no browser service-role key is required.
+  const { error } = await supabase.rpc('admin_set_user_password', {
+    p_target_auth_user_id: user.auth_user_id,
+    p_new_password: newPassword,
   })
   if (error) throw error
 }
